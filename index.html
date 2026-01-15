@@ -1,17 +1,19 @@
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-<title>Oz Tower Attack </title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Castle Attack - One Lane (Stick Enemies)</title>
 <style>
   html,body{margin:0;height:100%;background:#0f1116;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto}
-  canvas{display:block;width:100vw;height:100vh;touch-action:manipulation}
+  canvas{display:block;width:100vw;height:100vh;touch-action:manipulation;-webkit-user-select:none;user-select:none}
   .hud{
     position:fixed;left:10px;top:10px;z-index:5;color:#e8ecff;
     background:rgba(0,0,0,.35);padding:10px 12px;border-radius:10px;
     backdrop-filter: blur(6px);
-    font-size:14px;line-height:1.35;min-width:260px
+    font-size:14px;line-height:1.35;min-width:260px;
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-left: calc(12px + env(safe-area-inset-left));
   }
   .hint{opacity:.85;font-size:12px;margin-top:6px}
   .btn{
@@ -29,8 +31,8 @@
   <div><b>Archers Alive:</b> <span id="alive">3</span>/3</div>
   <div><b>Towers:</b> A <span id="ta">100</span>% &nbsp; B <span id="tb">100</span>% &nbsp; C <span id="tc">100</span>%</div>
   <div class="hint">
-    Tap/click an enemy (optional) then it fires a 3-arrow volley.<br/>
-    Crowns per volley = number of arrows that hit <i>any</i> enemy (1/2/3).
+    Tap/click to aim. All living archers shoot <b>at once</b> with an arc.<br/>
+    Aim <b>above</b> enemies to hit ones farther back. Enemies stop at the front tower to attack it.
   </div>
   <div class="btn" id="restart">Restart</div>
 </div>
@@ -47,7 +49,7 @@
     ta: document.getElementById("ta"),
     tb: document.getElementById("tb"),
     tc: document.getElementById("tc"),
-    restart: document.getElementById("restart")
+    restart: document.getElementById("restart"),
   };
 
   // ===== Helpers =====
@@ -66,17 +68,14 @@
   addEventListener("resize", resize, {passive:true});
   resize();
 
-  // ===== Enemy Types =====
-  // block = chance to block an arrow entirely
-  // dr = damage multiplier (shield reduces damage when not blocked, too)
+  // ===== Enemy Types (still used for stats) =====
   const ENEMY = {
-    scout:  { name:"Scout",  hpMul:0.65, spdMul:1.45, dmgMul:0.85, r:12, block:0.00, dr:1.00, hue:"#9ad1ff" },
-    soldier:{ name:"Soldier",hpMul:1.00, spdMul:1.00, dmgMul:1.00, r:14, block:0.00, dr:1.00, hue:"#b8c3d8" },
-    shield: { name:"Shield", hpMul:1.15, spdMul:0.90, dmgMul:1.05, r:15, block:0.35, dr:0.65, hue:"#d8d0a8" },
-    brute:  { name:"Brute",  hpMul:1.85, spdMul:0.70, dmgMul:1.25, r:16, block:0.00, dr:1.00, hue:"#c6a0ff" }
+    scout:  { name:"Scout",  hpMul:0.70, spdMul:1.45, dmgMul:0.90, r:14 },
+    soldier:{ name:"Soldier",hpMul:1.00, spdMul:1.00, dmgMul:1.00, r:16 },
+    brute:  { name:"Brute",  hpMul:1.90, spdMul:0.72, dmgMul:1.25, r:18 },
+    shield: { name:"Shield", hpMul:1.20, spdMul:0.90, dmgMul:1.05, r:17, block:0.35, dr:0.70 }
   };
 
-  // ===== Game State =====
   let NEXT_ID = 1;
 
   const G = {
@@ -84,138 +83,129 @@
     wave: 1,
     crowns: 0,
 
+    groundY: 0,
+    laneY: 0,
+
+    aimX: 0,
+    aimY: 0,
+    aimActive: false,
+
     enemies: [],
     arrows: [],
     particles: [],
 
-    // If you click an enemy, we prefer targeting that one (per archer picks closest in lane if not)
-    preferredTargetId: null,
-
-    // volley bookkeeping (crowns per volley)
+    // volley crowns: count arrows that hit *anything*
     volleyActive: false,
-    volleyHits: [false,false,false],   // did arrow 0/1/2 hit any enemy
-    volleyResolveTimer: 0,
+    volleyHits: [false,false,false],
+    volleyResolveT: 0,
 
-    // wave spawning
     enemiesToSpawn: 0,
     spawnedThisWave: 0,
     nextSpawn: 0,
-    waveClearTimer: 0,
-
-    // layout
-    groundY: 0,
-    lanesY: [0,0,0],
+    waveClearT: 0,
 
     towers: [
-      { id:"A", hp:100, maxH:240, w:64, x:0, baseY:0, archers:[] },
-      { id:"B", hp:100, maxH:220, w:64, x:0, baseY:0, archers:[] },
-      { id:"C", hp:100, maxH:205, w:64, x:0, baseY:0, archers:[] }
+      { id:"A", hp:100, maxH:245, w:64, x:0, baseY:0, archers:[] },
+      { id:"B", hp:100, maxH:225, w:64, x:0, baseY:0, archers:[] },
+      { id:"C", hp:100, maxH:210, w:64, x:0, baseY:0, archers:[] },
     ],
-    archers: [] // 3 total, one on each tower
+    archers: [] // 1 per tower
   };
 
   function layout(){
     const W = innerWidth, H = innerHeight;
-    G.groundY = Math.floor(H*0.80);
+    G.groundY = Math.floor(H*0.82);
+    G.laneY = G.groundY;
 
-    // 3 lanes (archer i shoots mostly toward lane i)
-    G.lanesY[0] = Math.floor(G.groundY - H*0.25);
-    G.lanesY[1] = Math.floor(G.groundY - H*0.17);
-    G.lanesY[2] = Math.floor(G.groundY - H*0.10);
+    // towers in a row (front -> back)
+    G.towers[0].x = Math.floor(W*0.18);
+    G.towers[1].x = Math.floor(W*0.28);
+    G.towers[2].x = Math.floor(W*0.38);
 
-    // towers left
-    G.towers[0].x = Math.floor(W*0.16);
-    G.towers[1].x = Math.floor(W*0.24);
-    G.towers[2].x = Math.floor(W*0.32);
     for(const t of G.towers){
       t.baseY = G.groundY;
       t.w = Math.max(56, Math.floor(W*0.05));
     }
-  }
 
-  function towerHeight(t){
-    return Math.max(0, t.maxH * (t.hp/100));
-  }
-
-  function archerPos(a){
-    const t = G.towers[a.towerIndex];
-    const h = towerHeight(t);
-    return { x: t.x, y: (t.baseY - h) - 10 };
-  }
-
-  function aliveArchers(){
-    return G.archers.reduce((n,a)=>n+(a.alive?1:0),0);
-  }
-
-  function getEnemy(id){
-    return G.enemies.find(e=>e.id===id) || null;
-  }
-
-  function chooseTypeForWave(wave){
-    const r = Math.random();
-    if(wave < 3){
-      return (r<0.25) ? "scout" : "soldier";
-    } else if(wave < 6){
-      if(r<0.22) return "scout";
-      if(r<0.80) return "soldier";
-      return "shield";
-    } else {
-      if(r<0.18) return "scout";
-      if(r<0.50) return "soldier";
-      if(r<0.78) return "shield";
-      return "brute";
+    if(!G.aimActive){
+      // default aim slightly above ground, mid-right
+      G.aimX = Math.floor(W*0.70);
+      G.aimY = Math.floor(G.groundY - H*0.20);
     }
   }
 
-  function makeEnemy(wave){
-    const W = innerWidth;
-    const lane = Math.floor(Math.random()*3);
-    const type = chooseTypeForWave(wave);
-    const T = ENEMY[type];
+  function towerHeight(t){ return Math.max(0, t.maxH*(t.hp/100)); }
 
-    const baseHp = 54 + (wave-1)*14;
-    const hp = Math.round(baseHp * T.hpMul * (0.9 + Math.random()*0.25));
-
-    const baseSpd = 32 + (wave-1)*3;
-    const speed = baseSpd * T.spdMul * (0.85 + Math.random()*0.25);
-
-    return {
-      id: NEXT_ID++,
-      lane,
-      type,
-      x: W + 70 + Math.random()*140,
-      y: 0,
-      r: T.r,
-      hp, hpMax: hp,
-      speed,
-      attacking:false,
-      atkCd: rand(0.35,0.60),
-      atkT: rand(0.05,0.25),
-      dead:false
-    };
+  function archerPos(archer){
+    const t = G.towers[archer.towerIndex];
+    const h = towerHeight(t);
+    return { x: t.x, y: (t.baseY - h) - 12 };
   }
 
-  function nearestEnemyInLane(lane){
-    let best=null, bestX=1e18;
-    for(const e of G.enemies){
-      if(e.dead || e.lane!==lane) continue;
-      if(e.x < bestX){ bestX = e.x; best = e; }
+  function aliveArchers(){ return G.archers.reduce((n,a)=>n+(a.alive?1:0),0); }
+
+  function frontAliveTower(){
+    // smallest x among towers with hp>0
+    let best = null;
+    for(const t of G.towers){
+      if(t.hp<=0) continue;
+      if(!best || t.x < best.x) best = t;
     }
     return best;
   }
 
-  function makeArcher(towerIndex, laneIndex){
-    return { id: NEXT_ID++, towerIndex, laneIndex, alive:true, cooldown:0 };
+  function chooseTypeForWave(w){
+    const r = Math.random();
+    if(w<3) return (r<0.30) ? "scout" : "soldier";
+    if(w<6){
+      if(r<0.25) return "scout";
+      if(r<0.80) return "soldier";
+      return "shield";
+    }
+    // later
+    if(r<0.18) return "scout";
+    if(r<0.50) return "soldier";
+    if(r<0.78) return "shield";
+    return "brute";
+  }
+
+  function makeEnemy(w){
+    const W = innerWidth;
+    const type = chooseTypeForWave(w);
+    const T = ENEMY[type];
+
+    const baseHp = 58 + (w-1)*15;
+    const hp = Math.round(baseHp * T.hpMul * (0.9 + Math.random()*0.25));
+
+    const baseSpd = 36 + (w-1)*3.2;
+    const speed = baseSpd * T.spdMul * (0.85 + Math.random()*0.25);
+
+    return {
+      id: NEXT_ID++,
+      type,
+      x: W + 80 + Math.random()*140,
+      y: G.laneY,
+      r: T.r,
+      hp, hpMax: hp,
+      speed,
+      dead:false,
+      attacking:false,
+      atkCd: rand(0.35,0.60),
+      atkT: rand(0.05,0.25)
+    };
+  }
+
+  function makeArcher(towerIndex){
+    return { id: NEXT_ID++, towerIndex, alive:true, cooldown:0 };
   }
 
   function startWave(n){
     G.wave = n;
     UI.wave.textContent = String(n);
-
-    G.enemiesToSpawn = Math.round(7 + (n-1)*2.4);
+    G.enemiesToSpawn = Math.round(7 + (n-1)*2.6);
     G.spawnedThisWave = 0;
-    G.nextSpawn = 0.3;
-    G.waveClearTimer = 0;
+    G.nextSpawn = 0.25;
+    G.waveClearT = 0;
   }
 
   function reset(){
@@ -225,45 +215,99 @@
     G.enemies.length = 0;
     G.arrows.length = 0;
     G.particles.length = 0;
-    G.preferredTargetId = null;
 
     for(const t of G.towers) t.hp = 100;
 
-    G.archers = [
-      makeArcher(0,0),
-      makeArcher(1,1),
-      makeArcher(2,2)
-    ];
+    G.archers = [ makeArcher(0), makeArcher(1), makeArcher(2) ];
     G.towers[0].archers = [G.archers[0]];
     G.towers[1].archers = [G.archers[1]];
     G.towers[2].archers = [G.archers[2]];
 
     G.volleyActive = false;
     G.volleyHits = [false,false,false];
-    G.volleyResolveTimer = 0;
+    G.volleyResolveT = 0;
 
     UI.crowns.textContent = "0";
+    G.aimActive = false;
     startWave(1);
   }
 
-  // ===== Shooting / Volley =====
-  function spawnArrow(archerIndex, from, target){
-    const dx = target.x - from.x;
-    const dy = target.y - from.y;
-    const len = Math.hypot(dx,dy) || 1;
+  // ===== Stick Figure Drawing =====
+  function drawStickMan(x, groundY, scale, attacking){
+    // groundY is foot level
+    const headR = 5*scale;
+    const body = 14*scale;
 
-    const speed = 560;
-    const vx = (dx/len)*speed;
-    const vy = (dy/len)*speed - 180;
+    const hx = x;
+    const hy = groundY - (headR*2 + body + 8*scale);
+
+    // head
+    ctx.strokeStyle = "#1c1c1c";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(hx, hy, headR, 0, Math.PI*2);
+    ctx.stroke();
+
+    // body
+    const neckY = hy + headR;
+    const torsoY = neckY + body;
+
+    ctx.beginPath();
+    ctx.moveTo(hx, neckY);
+    ctx.lineTo(hx, torsoY);
+    ctx.stroke();
+
+    // arms (slight animation)
+    const armY = neckY + 5*scale;
+    const armOut = 10*scale;
+    const armDown = attacking ? 2*scale : 6*scale;
+
+    ctx.beginPath();
+    ctx.moveTo(hx, armY);
+    ctx.lineTo(hx - armOut, armY + armDown);
+    ctx.moveTo(hx, armY);
+    ctx.lineTo(hx + armOut, armY + armDown);
+    ctx.stroke();
+
+    // legs
+    const legOut = 8*scale;
+    const legDown = 12*scale;
+    ctx.beginPath();
+    ctx.moveTo(hx, torsoY);
+    ctx.lineTo(hx - legOut, torsoY + legDown);
+    ctx.moveTo(hx, torsoY);
+    ctx.lineTo(hx + legOut, torsoY + legDown);
+    ctx.stroke();
+  }
+
+  // ===== Shooting (all three arrows at once) =====
+  function spawnArrow(archerIndex, fromX, fromY, aimX, aimY){
+    // IMPORTANT: This is "aimed" with gravity. You must aim above for long shots.
+    // We'll set initial velocity proportional to aim vector; gravity will drop it.
+    const dx = aimX - fromX;
+    const dy = aimY - fromY;
+
+    // clamp how low you can aim (so you can't trivially shoot the floor and still hit)
+    // still allows aiming near ground, but not below it.
+    const minAimY = G.groundY - 6;
+    const adjAimY = Math.min(aimY, minAimY);
+
+    const ddx = dx;
+    const ddy = adjAimY - fromY;
+
+    // speed scales with distance so far targets still reachable
+    const dist = Math.hypot(ddx, ddy) || 1;
+    const speed = clamp(420 + dist*0.55, 520, 920);
+
+    const vx = (ddx/dist) * speed;
+    const vy = (ddy/dist) * speed;
 
     G.arrows.push({
       archerIndex,
-      x: from.x,
-      y: from.y,
+      x: fromX, y: fromY,
       vx, vy,
-      g: 560,
+      g: 760,
       alive:true,
-      targetId: target.id,
       trail:[]
     });
   }
@@ -271,69 +315,59 @@
   function fireVolley(){
     if(aliveArchers()<=0) return;
 
-    // start a new volley
+    // begin volley (crowns based on how many arrows hit anything)
     G.volleyActive = true;
     G.volleyHits = [false,false,false];
-    G.volleyResolveTimer = 0;
+    G.volleyResolveT = 0;
 
     for(let i=0;i<G.archers.length;i++){
       const a = G.archers[i];
       if(!a.alive) continue;
       if(a.cooldown>0) continue;
 
-      // Each archer prefers:
-      // 1) clicked target if alive
-      // 2) nearest enemy in their lane
-      let target = null;
-      const pref = G.preferredTargetId ? getEnemy(G.preferredTargetId) : null;
-      if(pref && !pref.dead) target = pref;
-      if(!target) target = nearestEnemyInLane(a.laneIndex);
+      const p = archerPos(a);
 
-      if(target){
-        spawnArrow(i, archerPos(a), target);
-        a.cooldown = 0.55;
-      }
+      // small per-archer spread so they don’t stack perfectly
+      const spread = (i-1) * 10;
+      spawnArrow(i, p.x, p.y, G.aimX, G.aimY + spread);
+
+      a.cooldown = 0.55;
     }
   }
 
   function resolveVolleyIfReady(){
     if(!G.volleyActive) return;
+
     const arrowsAlive = G.arrows.some(a=>a.alive);
-    if(arrowsAlive && G.volleyResolveTimer < 0.85) return;
+    if(arrowsAlive && G.volleyResolveT < 0.95) return;
 
     const hits = (G.volleyHits[0]?1:0) + (G.volleyHits[1]?1:0) + (G.volleyHits[2]?1:0);
     if(hits>0){
-      G.crowns += hits; // 1/2/3 crowns based on number of arrows that hit any enemy
+      G.crowns += hits;
       UI.crowns.textContent = String(G.crowns);
     }
     G.volleyActive = false;
   }
 
-  function killEnemy(e){
-    e.dead = true;
-    if(G.preferredTargetId === e.id) G.preferredTargetId = null;
-    for(let i=0;i<14;i++){
-      G.particles.push({
-        x:e.x, y:e.y,
-        vx:(Math.random()*2-1)*150,
-        vy:(Math.random()*2-1)*150 - 70,
-        life:0.7 + Math.random()*0.4
-      });
+  // ===== Combat / Damage =====
+  function damageFrontTower(amount){
+    const t = frontAliveTower();
+    if(!t) return;
+    t.hp = clamp(t.hp - amount, 0, 100);
+    if(t.hp<=0){
+      for(const a of t.archers) a.alive = false;
     }
   }
 
-  // ===== Tower Damage =====
-  function damageTower(amount){
-    // Enemies hit the front-most (smallest x) still standing tower.
-    const alive = G.towers.filter(t=>t.hp>0);
-    if(alive.length===0) return;
-
-    let front = alive[0];
-    for(const t of alive) if(t.x < front.x) front = t;
-
-    front.hp = clamp(front.hp - amount, 0, 100);
-    if(front.hp<=0){
-      for(const a of front.archers) a.alive = false;
+  function killEnemy(e){
+    e.dead = true;
+    for(let i=0;i<10;i++){
+      G.particles.push({
+        x:e.x, y:e.y-18,
+        vx:(Math.random()*2-1)*160,
+        vy:(Math.random()*2-1)*160 - 80,
+        life:0.6 + Math.random()*0.3
+      });
     }
   }
 
@@ -343,23 +377,13 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
-  function pickEnemyAt(x,y){
-    let best=null, bestD=1e18;
-    for(const e of G.enemies){
-      if(e.dead) continue;
-      const d = dist2(x,y,e.x,e.y);
-      const rr = (e.r+10)*(e.r+10);
-      if(d<=rr && d<bestD){ bestD=d; best=e; }
-    }
-    return best;
-  }
-
   canvas.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     const {x,y} = canvasXY(ev);
-    const e = pickEnemyAt(x,y);
-    if(e) G.preferredTargetId = e.id; // optional selection
-    fireVolley();
+    G.aimX = x;
+    G.aimY = y;
+    G.aimActive = true;
+    fireVolley(); // shoot immediately on tap/click
   }, {passive:false});
 
   UI.restart.addEventListener("click", reset);
@@ -381,29 +405,30 @@
     // spawn enemies
     if(aliveArchers()>0){
       G.nextSpawn -= dt;
-      if(G.spawnedThisWave < G.enemiesToSpawn && G.nextSpawn<=0){
+      if(G.spawnedThisWave < G.enemiesToSpawn && G.nextSpawn <= 0){
         G.enemies.push(makeEnemy(G.wave));
         G.spawnedThisWave++;
-        const base = 0.72 - Math.min(0.38, (G.wave-1)*0.022);
+        const base = 0.75 - Math.min(0.40, (G.wave-1)*0.02);
         G.nextSpawn = base * (0.85 + Math.random()*0.3);
       }
     }
 
-    // enemy movement/attack
-    const frontX = Math.min(G.towers[0].x, G.towers[1].x, G.towers[2].x) - 25;
+    // enemies move + stop at front of current tower
+    const front = frontAliveTower();
+    const stopX = front ? (front.x - front.w/2 - 18) : -9999;
 
     for(const e of G.enemies){
       if(e.dead) continue;
-      e.y = G.lanesY[e.lane];
+      e.y = G.groundY;
 
-      if(e.x <= frontX){
+      if(front && e.x <= stopX){
         e.attacking = true;
         e.atkT -= dt;
         if(e.atkT <= 0){
           e.atkT = e.atkCd;
           const T = ENEMY[e.type];
-          const dmg = (2.1 + (G.wave-1)*0.10) * T.dmgMul;
-          damageTower(dmg);
+          const dmg = (2.3 + (G.wave-1)*0.11) * (T.dmgMul || 1);
+          damageFrontTower(dmg);
         }
       } else {
         e.attacking = false;
@@ -411,58 +436,74 @@
       }
     }
 
-    // arrows
+    // arrows physics + hits (ground-level enemies)
     for(const ar of G.arrows){
       if(!ar.alive) continue;
+
       ar.vy += ar.g * dt;
       ar.x += ar.vx * dt;
       ar.y += ar.vy * dt;
 
       ar.trail.push([ar.x, ar.y]);
-      if(ar.trail.length>10) ar.trail.shift();
+      if(ar.trail.length > 10) ar.trail.shift();
 
-      if(ar.x < -140 || ar.x > innerWidth+180 || ar.y > innerHeight+160 || ar.y < -180){
+      // hit ground -> die (this makes "aim above" necessary)
+      if(ar.y >= G.groundY - 2){
         ar.alive = false;
         continue;
       }
 
-      const target = getEnemy(ar.targetId);
-      if(target && !target.dead){
-        const rr = (target.r+6)*(target.r+6);
-        if(dist2(ar.x, ar.y, target.x, target.y) <= rr){
+      // offscreen
+      if(ar.x < -160 || ar.x > innerWidth+220 || ar.y < -220 || ar.y > innerHeight+220){
+        ar.alive = false;
+        continue;
+      }
+
+      // collision with enemies: treat enemy as a circle centered above ground
+      for(const e of G.enemies){
+        if(e.dead) continue;
+
+        // center about torso area above ground
+        const cx = e.x;
+        const cy = e.y - 28; // torso-ish height
+        const rr = (e.r+6)*(e.r+6);
+
+        if(dist2(ar.x, ar.y, cx, cy) <= rr){
           ar.alive = false;
 
-          const T = ENEMY[target.type];
-          const blocked = (T.block>0 && Math.random() < T.block);
+          // shield block chance
+          const T = ENEMY[e.type];
+          const blocked = (T.block && Math.random() < T.block);
 
           if(!blocked){
-            // counts as a hit for volley crowns
+            // counts for volley crowns
             G.volleyHits[ar.archerIndex] = true;
 
-            const baseDmg = 24 + (G.wave-1)*1.6;
-            const dmg = baseDmg * (T.dr || 1);
-            target.hp -= dmg;
+            const baseDmg = 26 + (G.wave-1)*1.7;
+            const dr = (T.dr != null) ? T.dr : 1.0;
+            e.hp -= baseDmg * dr;
 
             for(let i=0;i<6;i++){
               G.particles.push({
-                x:target.x, y:target.y,
+                x:cx, y:cy,
                 vx:(Math.random()*2-1)*160,
-                vy:(Math.random()*2-1)*160,
+                vy:(Math.random()*2-1)*160 - 50,
                 life:0.25 + Math.random()*0.25
               });
             }
-            if(target.hp<=0) killEnemy(target);
+            if(e.hp <= 0) killEnemy(e);
           } else {
-            // blocked -> no "hit" for volley
-            for(let i=0;i<5;i++){
+            // blocked particles
+            for(let i=0;i<6;i++){
               G.particles.push({
-                x:target.x, y:target.y-6,
+                x:cx, y:cy,
                 vx:(Math.random()*2-1)*120,
-                vy:(Math.random()*2-1)*120 - 60,
-                life:0.22 + Math.random()*0.15
+                vy:(Math.random()*2-1)*120 - 70,
+                life:0.20 + Math.random()*0.18
               });
             }
           }
+          break;
         }
       }
     }
@@ -473,54 +514,48 @@
       p.life -= dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.vy += 520 * dt;
+      p.vy += 620 * dt;
     }
     G.particles = G.particles.filter(p=>p.life>0);
 
     // resolve volley
-    if(G.volleyActive) G.volleyResolveTimer += dt;
+    if(G.volleyActive) G.volleyResolveT += dt;
     resolveVolleyIfReady();
 
-    // wave clear -> next wave
+    // wave clear -> next
     const anyAlive = G.enemies.some(e=>!e.dead);
     const allSpawned = (G.spawnedThisWave >= G.enemiesToSpawn);
     if(allSpawned && !anyAlive && aliveArchers()>0){
-      G.waveClearTimer += dt;
-      if(G.waveClearTimer > 1.05){
-        startWave(G.wave+1);
-      }
+      G.waveClearT += dt;
+      if(G.waveClearT > 1.05) startWave(G.wave+1);
     } else {
-      G.waveClearTimer = 0;
+      G.waveClearT = 0;
     }
   }
 
   // ===== Draw =====
   function draw(){
     const W = innerWidth, H = innerHeight;
-    const groundY = G.groundY;
 
     // sky
     ctx.fillStyle = "#bfd3ff";
     ctx.fillRect(0,0,W,H);
 
-    // background strip
-    ctx.fillStyle = "#8fb07d";
-    ctx.fillRect(0, groundY-150, W, 150);
+    // far haze
+    ctx.fillStyle = "#93b685";
+    ctx.fillRect(0, G.groundY-160, W, 160);
 
     // ground
     ctx.fillStyle = "#6b8f52";
-    ctx.fillRect(0, groundY, W, H-groundY);
+    ctx.fillRect(0, G.groundY, W, H-G.groundY);
 
-    // lane markers
-    for(let i=0;i<3;i++){
-      const y = G.lanesY[i];
-      ctx.strokeStyle = "rgba(0,0,0,.10)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, y+24);
-      ctx.lineTo(W, y+24);
-      ctx.stroke();
-    }
+    // ground line
+    ctx.strokeStyle = "rgba(0,0,0,.18)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, G.groundY);
+    ctx.lineTo(W, G.groundY);
+    ctx.stroke();
 
     // towers
     for(const t of G.towers){
@@ -528,9 +563,11 @@
       const x = t.x - t.w/2;
       const y = t.baseY - h;
 
+      // body
       ctx.fillStyle = "#5b606a";
       ctx.fillRect(x, y, t.w, h);
 
+      // cap
       ctx.fillStyle = "#4b4f58";
       ctx.fillRect(x-5, y-12, t.w+10, 14);
 
@@ -566,66 +603,52 @@
       ctx.arc(p.x, p.y, 8, 0, Math.PI*2);
       ctx.fill();
 
+      // bow
       ctx.strokeStyle = "#c79a3a";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(p.x+7, p.y, 7, -Math.PI/2, Math.PI/2);
       ctx.stroke();
+    }
 
-      // lane label
+    // aim indicator (shows "shoot above" behavior)
+    ctx.strokeStyle = "rgba(0,0,0,.18)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(G.aimX-10, G.aimY);
+    ctx.lineTo(G.aimX+10, G.aimY);
+    ctx.moveTo(G.aimX, G.aimY-10);
+    ctx.lineTo(G.aimX, G.aimY+10);
+    ctx.stroke();
+
+    // enemies (stick figures)
+    for(const e of G.enemies){
+      if(e.dead) continue;
+
+      // small type badge above head
+      const badge = (e.type==="scout")?"S" : (e.type==="soldier")?"M" : (e.type==="shield")?"H" : "B";
+      drawStickMan(e.x, e.y, 1.0, e.attacking);
+
+      // hp
+      const bw = 40, bh = 5;
       ctx.fillStyle = "rgba(0,0,0,.35)";
-      ctx.fillRect(p.x-14, p.y-26, 28, 14);
+      ctx.fillRect(e.x - bw/2, e.y - 68, bw, bh);
+      ctx.fillStyle = "#ff3c3c";
+      ctx.fillRect(e.x - bw/2, e.y - 68, bw*(e.hp/e.hpMax), bh);
+
+      // badge
+      ctx.fillStyle = "rgba(0,0,0,.35)";
+      ctx.fillRect(e.x-8, e.y-88, 16, 16);
       ctx.fillStyle = "#fff";
       ctx.font = "800 11px system-ui,-apple-system,Segoe UI,Roboto";
       ctx.textAlign = "center";
-      ctx.fillText(["TOP","MID","BOT"][a.laneIndex], p.x, p.y-15);
+      ctx.fillText(badge, e.x, e.y-76);
       ctx.textAlign = "left";
-    }
-
-    // enemies
-    for(const e of G.enemies){
-      if(e.dead) continue;
-      const T = ENEMY[e.type];
-
-      ctx.fillStyle = "#2c2c2c";
-      ctx.beginPath();
-      ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
-      ctx.fill();
-
-      ctx.fillStyle = T.hue;
-      ctx.beginPath();
-      ctx.arc(e.x-3, e.y-5, e.r*0.55, 0, Math.PI*2);
-      ctx.fill();
-
-      if(e.type==="shield"){
-        ctx.fillStyle = "rgba(40,30,10,.6)";
-        ctx.fillRect(e.x+8, e.y-6, 8, 12);
-      }
-
-      // hp bar
-      const bw=36, bh=5;
-      ctx.fillStyle = "rgba(0,0,0,.35)";
-      ctx.fillRect(e.x-bw/2, e.y-e.r-14, bw, bh);
-      ctx.fillStyle = "#ff3c3c";
-      ctx.fillRect(e.x-bw/2, e.y-e.r-14, bw*(e.hp/e.hpMax), bh);
-
-      // preferred target ring
-      if(G.preferredTargetId === e.id){
-        ctx.strokeStyle = "rgba(255,210,74,.9)";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, e.r+10, 0, Math.PI*2);
-        ctx.stroke();
-      }
-
-      if(e.attacking){
-        ctx.fillStyle = "rgba(200,40,40,.85)";
-        ctx.fillRect(e.x-6, e.y+e.r+6, 12, 4);
-      }
     }
 
     // arrows
     for(const a of G.arrows){
+      // trail
       ctx.strokeStyle = "rgba(0,0,0,.20)";
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -635,6 +658,7 @@
       }
       ctx.stroke();
 
+      // shaft (angle-ish)
       ctx.strokeStyle = "#3a2a14";
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -642,6 +666,7 @@
       ctx.lineTo(a.x - a.vx*0.02, a.y - a.vy*0.02);
       ctx.stroke();
 
+      // tip
       ctx.fillStyle = "#c0c6d3";
       ctx.beginPath();
       ctx.arc(a.x, a.y, 2.4, 0, Math.PI*2);
@@ -656,8 +681,8 @@
     }
     ctx.globalAlpha = 1;
 
-    // wave cleared banner
-    if(G.waveClearTimer>0.05 && aliveArchers()>0){
+    // wave cleared
+    if(G.waveClearT>0.05 && aliveArchers()>0){
       ctx.fillStyle = "rgba(0,0,0,.22)";
       ctx.fillRect(W/2-120, 14, 240, 36);
       ctx.fillStyle = "#fff";
@@ -667,7 +692,7 @@
       ctx.textAlign = "left";
     }
 
-    // game over overlay
+    // game over
     if(aliveArchers()<=0){
       ctx.fillStyle = "rgba(0,0,0,.48)";
       ctx.fillRect(0,0,W,H);
@@ -695,8 +720,6 @@
 
     requestAnimationFrame(frame);
   }
-
-  UI.restart.addEventListener("click", reset);
 
   reset();
   requestAnimationFrame(frame);
