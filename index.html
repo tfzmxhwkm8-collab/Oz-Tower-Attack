@@ -3,33 +3,90 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Oz Tower Attack</title>
+<title>Oz Tower Attack </title>
 <style>
   html,body{margin:0;height:100%;background:#0f1116;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto}
   canvas{display:block;width:100vw;height:100vh;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+
   .hud{
     position:fixed;left:10px;top:10px;z-index:5;color:#e8ecff;
     background:rgba(0,0,0,.35);padding:10px 12px;border-radius:10px;
     backdrop-filter: blur(6px);
-    font-size:14px;line-height:1.35;min-width:260px;
+    font-size:14px;line-height:1.35;min-width:300px;
     padding-top: calc(10px + env(safe-area-inset-top));
     padding-left: calc(12px + env(safe-area-inset-left));
   }
+  .row{display:flex;align-items:center;gap:10px;justify-content:space-between}
+  .leftcol{display:flex;flex-direction:column;gap:3px}
   .hint{opacity:.85;font-size:12px;margin-top:6px}
   .btn{
     margin-top:8px;display:inline-block;background:#2a63ff;color:#fff;
     padding:6px 10px;border-radius:9px;font-weight:800;font-size:13px;
     user-select:none
   }
+
+  /* === Log power button === */
+  .powerBtn{
+    width:46px;height:46px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    border:2px solid rgba(0,0,0,.25);
+    box-shadow:0 2px 8px rgba(0,0,0,.25);
+    user-select:none;
+    -webkit-user-select:none;
+    touch-action:manipulation;
+    position:relative;
+  }
+  .powerBtn.ready{ background:#ffffff; }
+  .powerBtn.cooldown{ background:#9aa0a6; }
+
+  .logIcon{
+    width:28px;height:12px;border-radius:8px;
+    background:#8b5a2b;
+    position:relative;
+    transform: rotate(-10deg);
+  }
+  .logIcon:before{
+    content:"";
+    position:absolute;left:3px;top:2px;right:3px;height:2px;
+    background:rgba(0,0,0,.18);
+    border-radius:6px;
+  }
+  .logIcon:after{
+    content:"";
+    position:absolute;left:5px;bottom:2px;right:5px;height:2px;
+    background:rgba(255,255,255,.18);
+    border-radius:6px;
+  }
+  .coolText{
+    position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);
+    font-size:11px;font-weight:800;color:#e8ecff;
+    text-shadow:0 1px 2px rgba(0,0,0,.45);
+    pointer-events:none;
+  }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+
 <div class="hud">
-  <div><b>Wave:</b> <span id="wave">1</span></div>
-  <div><b>Crowns:</b> <span id="crowns">0</span></div>
-  <div><b>Archers Alive:</b> <span id="alive">3</span>/3</div>
-  <div><b>Towers:</b> A <span id="ta">100</span>% &nbsp; B <span id="tb">100</span>% &nbsp; C <span id="tc">100</span>%</div>
+  <div class="row">
+    <div class="leftcol">
+      <div><b>Wave:</b> <span id="wave">1</span></div>
+      <div><b>Crowns:</b> <span id="crowns">0</span></div>
+      <div><b>Archers Alive:</b> <span id="alive">3</span>/3</div>
+      <div><b>Towers:</b> A <span id="ta">100</span>% &nbsp; B <span id="tb">100</span>% &nbsp; C <span id="tc">100</span>%</div>
+      <div><b>DMG:</b> <span id="dmg">x1.0</span> &nbsp; <b>3-hit streak:</b> <span id="streak">0</span></div>
+    </div>
+
+    <!-- Log Power Button -->
+    <div>
+      <div id="logBtn" class="powerBtn ready" title="Log Power">
+        <div class="logIcon"></div>
+        <div id="logCd" class="coolText"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="hint">
     Tap/click to aim. All living archers shoot <b>at once</b> with an arc.<br/>
     Aim <b>above</b> enemies to hit ones farther back. Enemies stop at the rightmost alive tower first.
@@ -49,7 +106,11 @@
     ta: document.getElementById("ta"),
     tb: document.getElementById("tb"),
     tc: document.getElementById("tc"),
+    dmg: document.getElementById("dmg"),
+    streak: document.getElementById("streak"),
     restart: document.getElementById("restart"),
+    logBtn: document.getElementById("logBtn"),
+    logCd: document.getElementById("logCd"),
   };
 
   // ===== Helpers =====
@@ -103,19 +164,33 @@
     nextSpawn: 0,
     waveClearT: 0,
 
-    // Volley tracking (NEW): crowns are based on volley hits (1/2/3)
+    // Volley tracking: crowns are based on volley hits (1/2/3)
     volleyActive: false,
     volleyId: 0,
-    volleyHits: [false,false,false],  // per archer arrow hit?
+    volleyHits: [false,false,false],
     volleyResolveT: 0,
-    volleyDeaths: [],                 // enemies killed during this volley: {x,y}
+    volleyDeaths: [],
+
+    // (3) Damage multiplier for consecutive 3-hit volleys
+    threeHitStreak: 0,   // consecutive volleys with hitCount===3
+    dmgMult: 1.0,
+
+    // (1)(2) Log special power
+    logCooldown: 0,      // seconds until ready (0 = ready)
+    logActive: false,
+    logX: 0,
+    logY: 0,
+    logW: 140,
+    logH: 26,
+    logV: 920,
+    logRot: 0,
 
     towers: [
       { id:"A", hp:100, maxH:245, w:52, x:0, baseY:0, archers:[] },
       { id:"B", hp:100, maxH:225, w:52, x:0, baseY:0, archers:[] },
       { id:"C", hp:100, maxH:210, w:52, x:0, baseY:0, archers:[] },
     ],
-    archers: [] // 1 per tower
+    archers: []
   };
 
   function layout(){
@@ -136,6 +211,9 @@
       t.baseY = G.groundY;
     }
 
+    // log lane Y
+    G.logY = G.groundY - 10;
+
     if(!G.aimActive){
       G.aimX = Math.floor(W*0.72);
       G.aimY = Math.floor(G.groundY - H*0.22);
@@ -152,7 +230,6 @@
 
   function aliveArchers(){ return G.archers.reduce((n,a)=>n+(a.alive?1:0),0); }
 
-  // RIGHTMOST alive tower is attacked first (C -> B -> A)
   function rightmostAliveTower(){
     let best = null;
     for(const t of G.towers){
@@ -225,12 +302,22 @@
     G.particles.length = 0;
     G.crownPops.length = 0;
 
-    // Reset volley
+    // volley
     G.volleyActive = false;
     G.volleyId = 0;
     G.volleyHits = [false,false,false];
     G.volleyResolveT = 0;
     G.volleyDeaths = [];
+
+    // streak / dmg
+    G.threeHitStreak = 0;
+    G.dmgMult = 1.0;
+
+    // log power
+    G.logCooldown = 0;
+    G.logActive = false;
+    G.logX = innerWidth + 200;
+    G.logRot = 0;
 
     for(const t of G.towers) t.hp = 100;
 
@@ -240,6 +327,9 @@
     G.towers[2].archers = [G.archers[2]];
 
     UI.crowns.textContent = "0";
+    UI.dmg.textContent = "x1.0";
+    UI.streak.textContent = "0";
+
     G.aimActive = false;
     startWave(1);
   }
@@ -255,7 +345,6 @@
     ctx.strokeStyle = "#1c1c1c";
     ctx.lineWidth = 2;
 
-    // head
     ctx.beginPath();
     ctx.arc(hx, hy, headR, 0, Math.PI*2);
     ctx.stroke();
@@ -263,13 +352,11 @@
     const neckY = hy + headR;
     const torsoY = neckY + body;
 
-    // body
     ctx.beginPath();
     ctx.moveTo(hx, neckY);
     ctx.lineTo(hx, torsoY);
     ctx.stroke();
 
-    // arms
     const armY = neckY + 5*scale;
     const armOut = 10*scale;
     const armDown = attacking ? 2*scale : 6*scale;
@@ -281,7 +368,6 @@
     ctx.lineTo(hx + armOut, armY + armDown);
     ctx.stroke();
 
-    // legs
     const legOut = 8*scale;
     const legDown = 12*scale;
     ctx.beginPath();
@@ -292,37 +378,23 @@
     ctx.stroke();
   }
 
-  // ===== Pixel Crown Drawing (NEW - no emoji) =====
+  // ===== Pixel Crown Drawing =====
   function drawPixelCrown(x, y, s){
-    // simple 9x7 pixel crown (filled rectangles)
-    // outline + gold fill
-    const px = s; // pixel size
-
-    // outline
+    const px = s;
     ctx.fillStyle = "#6b4a10";
-    // base outline
     ctx.fillRect(x + 0*px, y + 4*px, 9*px, 3*px);
-
-    // top outline peaks
     ctx.fillRect(x + 0*px, y + 2*px, 2*px, 2*px);
     ctx.fillRect(x + 3*px, y + 1*px, 3*px, 3*px);
     ctx.fillRect(x + 7*px, y + 2*px, 2*px, 2*px);
 
-    // fill
     ctx.fillStyle = "#f2c34b";
-    // base fill
     ctx.fillRect(x + 1*px, y + 5*px, 7*px, 1*px);
     ctx.fillRect(x + 1*px, y + 4*px, 7*px, 1*px);
-
-    // middle peak fill
     ctx.fillRect(x + 4*px, y + 2*px, 1*px, 2*px);
     ctx.fillRect(x + 3*px, y + 3*px, 3*px, 1*px);
-
-    // side peak fill
     ctx.fillRect(x + 1*px, y + 3*px, 1*px, 1*px);
     ctx.fillRect(x + 7*px, y + 3*px, 1*px, 1*px);
 
-    // gems (tiny)
     ctx.fillStyle = "#ff4d6d";
     ctx.fillRect(x + 4*px, y + 5*px, 1*px, 1*px);
     ctx.fillStyle = "#3aa0ff";
@@ -332,20 +404,17 @@
   }
 
   function drawCrownStack(count, x, y){
-    // draw 1..3 crowns centered, pixel size scales with screen a bit
     const s = Math.max(2, Math.floor(Math.min(innerWidth, innerHeight) / 220));
     const crownW = 9*s;
     const gap = 3*s;
-
     const totalW = count*crownW + (count-1)*gap;
     let startX = x - totalW/2;
-
     for(let i=0;i<count;i++){
       drawPixelCrown(startX + i*(crownW+gap), y, s);
     }
   }
 
-  // ===== Shooting (all three arrows at once) =====
+  // ===== Shooting =====
   function spawnArrow(archerIndex, fromX, fromY, aimX, aimY){
     const minAimY = G.groundY - 6;
     const adjAimY = Math.min(aimY, minAimY);
@@ -361,7 +430,7 @@
 
     G.arrows.push({
       archerIndex,
-      volleyId: G.volleyId,   // tie arrow to current volley
+      volleyId: G.volleyId,
       x: fromX, y: fromY,
       vx, vy,
       g: 760,
@@ -407,6 +476,17 @@
       (G.volleyHits[1]?1:0) +
       (G.volleyHits[2]?1:0);
 
+    // streak logic: consecutive PERFECT (3-hit) volleys
+    if(hitCount === 3){
+      G.threeHitStreak++;
+    } else {
+      G.threeHitStreak = 0;
+    }
+    G.dmgMult = (G.threeHitStreak >= 3) ? 1.5 : 1.0;
+
+    UI.streak.textContent = String(G.threeHitStreak);
+    UI.dmg.textContent = (G.dmgMult === 1.5) ? "x1.5" : "x1.0";
+
     // Award crowns to total based on volley hits (1/2/3)
     if(hitCount > 0){
       G.crowns += hitCount;
@@ -425,7 +505,6 @@
       }
     }
 
-    // end volley
     G.volleyActive = false;
     G.volleyResolveT = 0;
     G.volleyDeaths = [];
@@ -441,16 +520,79 @@
     }
   }
 
-  function killEnemy(e){
+  // ===== Log Power (NEW) =====
+  function setLogButtonUI(){
+    const ready = (G.logCooldown <= 0 && !G.logActive && aliveArchers()>0);
+    UI.logBtn.classList.toggle("ready", ready);
+    UI.logBtn.classList.toggle("cooldown", !ready);
+
+    if(ready){
+      UI.logCd.textContent = "";
+    } else {
+      const sec = Math.ceil(G.logCooldown);
+      UI.logCd.textContent = (G.logCooldown > 0) ? `${sec}s` : "";
+    }
+  }
+
+  function activateLog(){
+    if(G.logCooldown > 0 || G.logActive) return;
+    if(aliveArchers()<=0) return;
+
+    G.logCooldown = 60;
+    G.logActive = true;
+    G.logX = innerWidth + G.logW;
+    G.logRot = 0;
+    setLogButtonUI();
+  }
+
+  function updateLog(dt){
+    if(G.logCooldown > 0){
+      G.logCooldown = Math.max(0, G.logCooldown - dt);
+    }
+
+    if(G.logActive){
+      G.logX -= G.logV * dt;
+      G.logRot += 8 * dt;
+
+      // kill enemies touched by log rectangle
+      const left = G.logX - G.logW/2;
+      const right = G.logX + G.logW/2;
+      for(const e of G.enemies){
+        if(e.dead) continue;
+        if(e.x >= left && e.x <= right){
+          killEnemyInstant(e);
+        }
+      }
+
+      // finished traveling
+      if(G.logX < -G.logW){
+        G.logActive = false;
+      }
+    }
+
+    setLogButtonUI();
+  }
+
+  function killEnemyInstant(e){
+    if(e.dead) return;
     e.dead = true;
 
-    // record death for crown pop at volley resolution
-    // (we use groundY position so it floats above the body)
+    // small burst
+    for(let i=0;i<10;i++){
+      G.particles.push({
+        x:e.x, y:e.y-18,
+        vx:(Math.random()*2-1)*180,
+        vy:(Math.random()*2-1)*180 - 90,
+        life:0.55 + Math.random()*0.25
+      });
+    }
+  }
+
+  function killEnemy(e){
+    e.dead = true;
     if(G.volleyActive){
       G.volleyDeaths.push({ x: e.x, y: e.y });
     }
-
-    // particles
     for(let i=0;i<10;i++){
       G.particles.push({
         x:e.x, y:e.y-18,
@@ -467,6 +609,7 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
+  // Aim/shoot
   canvas.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     const {x,y} = canvasXY(ev);
@@ -474,6 +617,13 @@
     G.aimY = y;
     G.aimActive = true;
     fireVolley();
+  }, {passive:false});
+
+  // Log button (stop it from shooting)
+  UI.logBtn.addEventListener("pointerdown", (ev)=>{
+    ev.preventDefault();
+    ev.stopPropagation();
+    activateLog();
   }, {passive:false});
 
   UI.restart.addEventListener("click", reset);
@@ -502,6 +652,9 @@
         G.nextSpawn = base * (0.85 + Math.random()*0.3);
       }
     }
+
+    // log power update
+    updateLog(dt);
 
     // enemies move + stop at RIGHTMOST alive tower (C then B then A)
     const t = rightmostAliveTower();
@@ -537,7 +690,7 @@
       ar.trail.push([ar.x, ar.y]);
       if(ar.trail.length > 10) ar.trail.shift();
 
-      // hit ground -> die (forces arcing aim)
+      // hit ground -> die
       if(ar.y >= G.groundY - 2){
         ar.alive = false;
         continue;
@@ -564,12 +717,13 @@
           const blocked = (T.block && Math.random() < T.block);
 
           if(!blocked){
-            // mark volley hit for this archer index (counts as 1/2/3 total)
             if(G.volleyActive && ar.volleyId === G.volleyId){
               G.volleyHits[ar.archerIndex] = true;
             }
 
-            const baseDmg = 26 + (G.wave-1)*1.7;
+            // (3) Apply damage multiplier when streak >= 3
+            const baseDmg = (26 + (G.wave-1)*1.7) * G.dmgMult;
+
             const dr = (T.dr != null) ? T.dr : 1.0;
             e.hp -= baseDmg * dr;
 
@@ -596,7 +750,6 @@
         }
       }
     }
-    // keep arrows from any volley
     G.arrows = G.arrows.filter(a=>a.alive);
 
     // particles
@@ -633,6 +786,53 @@
   }
 
   // ===== Draw =====
+  function drawLog(){
+    if(!G.logActive) return;
+
+    const x = G.logX;
+    const y = G.logY;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(G.logRot);
+
+    // shadow
+    ctx.fillStyle = "rgba(0,0,0,.18)";
+    ctx.beginPath();
+    ctx.ellipse(0, 16, G.logW*0.38, 10, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // log body
+    ctx.fillStyle = "#8b5a2b";
+    const rw = G.logW, rh = G.logH;
+    ctx.beginPath();
+    ctx.roundRect(-rw/2, -rh/2, rw, rh, rh/2);
+    ctx.fill();
+
+    // grain stripes
+    ctx.fillStyle = "rgba(0,0,0,.16)";
+    ctx.fillRect(-rw*0.35, -2, rw*0.70, 3);
+    ctx.fillStyle = "rgba(255,255,255,.14)";
+    ctx.fillRect(-rw*0.28, 4, rw*0.56, 2);
+
+    ctx.restore();
+  }
+
+  // polyfill-ish for roundRect on some browsers
+  if(!CanvasRenderingContext2D.prototype.roundRect){
+    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+      r = Math.min(r, w/2, h/2);
+      this.beginPath();
+      this.moveTo(x+r, y);
+      this.arcTo(x+w, y, x+w, y+h, r);
+      this.arcTo(x+w, y+h, x, y+h, r);
+      this.arcTo(x, y+h, x, y, r);
+      this.arcTo(x, y, x+w, y, r);
+      this.closePath();
+      return this;
+    };
+  }
+
   function draw(){
     const W = innerWidth, H = innerHeight;
 
@@ -712,20 +912,17 @@
     ctx.moveTo(G.aimX, G.aimY-10); ctx.lineTo(G.aimX, G.aimY+10);
     ctx.stroke();
 
-    // enemies (stick figures)
+    // enemies
     for(const e of G.enemies){
       if(e.dead) continue;
-
       drawStickMan(e.x, e.y, 1.0, e.attacking);
 
-      // hp
       const bw = 40, bh = 5;
       ctx.fillStyle = "rgba(0,0,0,.35)";
       ctx.fillRect(e.x - bw/2, e.y - 68, bw, bh);
       ctx.fillStyle = "#ff3c3c";
       ctx.fillRect(e.x - bw/2, e.y - 68, bw*(e.hp/e.hpMax), bh);
 
-      // small type badge
       const badge = (e.type==="scout")?"S" : (e.type==="soldier")?"M" : (e.type==="shield")?"H" : "B";
       ctx.fillStyle = "rgba(0,0,0,.35)";
       ctx.fillRect(e.x-8, e.y-88, 16, 16);
@@ -735,6 +932,9 @@
       ctx.fillText(badge, e.x, e.y-76);
       ctx.textAlign = "left";
     }
+
+    // log (draw above ground & below arrows)
+    drawLog();
 
     // arrows
     for(const a of G.arrows){
@@ -768,7 +968,7 @@
     }
     ctx.globalAlpha = 1;
 
-    // pixel crown popups
+    // crown pops
     for(const c of G.crownPops){
       const alpha = clamp(c.life, 0, 1);
       ctx.globalAlpha = alpha;
