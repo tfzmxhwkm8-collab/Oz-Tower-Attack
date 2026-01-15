@@ -8,28 +8,30 @@
   html,body{margin:0;height:100%;background:#0f1116;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto}
   canvas{display:block;width:100vw;height:100vh;touch-action:manipulation;-webkit-user-select:none;user-select:none}
 
+  /* Smaller HUD (no long hint text) */
   .hud{
     position:fixed;left:10px;top:10px;z-index:5;color:#e8ecff;
-    background:rgba(0,0,0,.35);padding:10px 12px;border-radius:10px;
+    background:rgba(0,0,0,.32);
+    padding:8px 10px;border-radius:10px;
     backdrop-filter: blur(6px);
-    font-size:14px;line-height:1.35;min-width:340px;
-    padding-top: calc(10px + env(safe-area-inset-top));
-    padding-left: calc(12px + env(safe-area-inset-left));
+    font-size:12px;line-height:1.25;
+    min-width:260px;
+    padding-top: calc(8px + env(safe-area-inset-top));
+    padding-left: calc(10px + env(safe-area-inset-left));
+    border:1px solid rgba(255,255,255,.08);
   }
-  .row{display:flex;align-items:flex-start;gap:12px;justify-content:space-between}
-  .leftcol{display:flex;flex-direction:column;gap:3px}
-  .hint{opacity:.85;font-size:12px;margin-top:6px}
+  .row{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}
+  .leftcol{display:flex;flex-direction:column;gap:2px}
   .btn{
-    margin-top:8px;display:inline-block;background:#2a63ff;color:#fff;
-    padding:6px 10px;border-radius:9px;font-weight:800;font-size:13px;
-    user-select:none;
-    cursor:pointer;
+    margin-top:6px;display:inline-block;background:#2a63ff;color:#fff;
+    padding:5px 9px;border-radius:9px;font-weight:900;font-size:12px;
+    user-select:none;cursor:pointer;
   }
 
   /* === Power buttons === */
   .powerStack{display:flex;flex-direction:column;gap:10px;align-items:center}
   .powerBtn{
-    width:46px;height:46px;border-radius:50%;
+    width:42px;height:42px;border-radius:50%;
     display:flex;align-items:center;justify-content:center;
     border:2px solid rgba(0,0,0,.25);
     box-shadow:0 2px 8px rgba(0,0,0,.25);
@@ -42,15 +44,15 @@
   .powerBtn.cooldown{ background:#9aa0a6; }
 
   .coolText{
-    position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);
-    font-size:11px;font-weight:800;color:#e8ecff;
+    position:absolute;bottom:-15px;left:50%;transform:translateX(-50%);
+    font-size:10px;font-weight:900;color:#e8ecff;
     text-shadow:0 1px 2px rgba(0,0,0,.45);
     pointer-events:none;
   }
 
   /* Log icon */
   .logIcon{
-    width:28px;height:12px;border-radius:8px;
+    width:26px;height:11px;border-radius:8px;
     background:#8b5a2b;
     position:relative;
     transform: rotate(-10deg);
@@ -70,14 +72,14 @@
 
   /* Oil icon */
   .oilIcon{
-    width:22px;height:26px;
+    width:20px;height:24px;
     position:relative;
     transform: rotate(-8deg);
   }
   .oilIcon:before{
     content:"";
     position:absolute;left:50%;top:2px;transform:translateX(-50%);
-    width:18px;height:18px;border-radius:50%;
+    width:16px;height:16px;border-radius:50%;
     background:#1d1f23;
     box-shadow: inset 0 2px 0 rgba(255,255,255,.10);
   }
@@ -87,6 +89,43 @@
     width:10px;height:16px;border-radius:10px 10px 12px 12px;
     background:#1d1f23;
   }
+
+  /* Start overlay */
+  .overlay{
+    position:fixed;inset:0;z-index:20;
+    display:flex;align-items:center;justify-content:center;
+    background: radial-gradient(1200px 700px at 60% 30%, rgba(140,200,255,.25), rgba(0,0,0,.75)),
+                linear-gradient(#0d1220, #05070b);
+    color:#eef2ff;
+    padding:18px;
+  }
+  .panel{
+    width:min(560px, 92vw);
+    background:rgba(0,0,0,.40);
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:16px;
+    padding:18px 16px;
+    backdrop-filter: blur(8px);
+    box-shadow:0 10px 40px rgba(0,0,0,.45);
+  }
+  .title{
+    font-weight:1000;
+    letter-spacing:.5px;
+    font-size:22px;
+    margin:0 0 8px;
+  }
+  .sub{opacity:.9;margin:0 0 14px;font-size:13px;line-height:1.35}
+  .bullets{margin:0 0 14px;padding-left:18px;font-size:13px;opacity:.95}
+  .bullets li{margin:6px 0}
+  .startRow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:flex-start}
+  .startBtn{
+    background:#ffffff;color:#111827;
+    border:0;border-radius:12px;
+    padding:10px 14px;
+    font-weight:1000;
+    cursor:pointer;
+  }
+  .muted{font-size:12px;opacity:.8}
 </style>
 </head>
 <body>
@@ -97,9 +136,10 @@
     <div class="leftcol">
       <div><b>Wave:</b> <span id="wave">1</span></div>
       <div><b>Crowns:</b> <span id="crowns">0</span> &nbsp; <b>High:</b> <span id="high">0</span></div>
-      <div><b>Archers Alive:</b> <span id="alive">3</span>/3</div>
+      <div><b>Alive:</b> <span id="alive">3</span>/3 &nbsp; <b>DMG:</b> <span id="dmg">x1.0</span></div>
       <div><b>Towers:</b> A <span id="ta">100</span>% &nbsp; B <span id="tb">100</span>% &nbsp; C <span id="tc">100</span>%</div>
-      <div><b>DMG:</b> <span id="dmg">x1.0</span> &nbsp; <b>3-hit streak:</b> <span id="streak">0</span></div>
+      <div><b>3-hit streak:</b> <span id="streak">0</span></div>
+      <div class="btn" id="restart">Restart</div>
     </div>
 
     <div class="powerStack">
@@ -114,12 +154,26 @@
       </div>
     </div>
   </div>
+</div>
 
-  <div class="hint">
-    Tap/click anywhere to aim &amp; fire (all living archers shoot at once with an arc).<br/>
-    Aim <b>above</b> enemies to hit ones farther back. Enemies attack the <b>rightmost</b> alive tower first (C → B → A).
+<div id="overlay" class="overlay">
+  <div class="panel">
+    <h1 class="title">Oz Tower Attack</h1>
+    <p class="sub">
+      Defend the towers. Enemies come from the right and attack the <b>rightmost</b> tower first (C → B → A).
+    </p>
+    <ul class="bullets">
+      <li><b>Tap/click</b> anywhere to fire a volley (all living archers shoot).</li>
+      <li>Arrows <b>arc</b> — aim higher to hit enemies farther back.</li>
+      <li>Earn <b>1/2/3 crowns</b> depending on how many arrows hit during that volley.</li>
+      <li><b>Log</b> (60s) rolls across and kills enemies. <b>Oil</b> (45s) burns enemies near the rightmost tower.</li>
+      <li>Get <b>1.5× damage</b> after <b>3</b> consecutive <b>3-hit volleys</b>.</li>
+    </ul>
+    <div class="startRow">
+      <button id="startBtn" class="startBtn">Start</button>
+      <div class="muted">Sound turns on after you press Start (required on mobile).</div>
+    </div>
   </div>
-  <div class="btn" id="restart">Restart</div>
 </div>
 
 <script>
@@ -144,6 +198,8 @@
     logCd: document.getElementById("logCd"),
     oilBtn: document.getElementById("oilBtn"),
     oilCd: document.getElementById("oilCd"),
+    overlay: document.getElementById("overlay"),
+    startBtn: document.getElementById("startBtn"),
   };
 
   // ===== Helpers =====
@@ -185,17 +241,82 @@
     };
   }
 
+  // ===== Audio (WebAudio; no external files) =====
+  let audio = { ctx:null, master:null, enabled:false };
+
+  function ensureAudio(){
+    if(audio.ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    audio.ctx = new AC();
+    audio.master = audio.ctx.createGain();
+    audio.master.gain.value = 0.35;
+    audio.master.connect(audio.ctx.destination);
+    audio.enabled = true;
+  }
+
+  function beep({type="sine", freq=440, dur=0.08, gain=0.25, endFreq=null, noise=false}){
+    if(!audio.enabled || !audio.ctx) return;
+    const t0 = audio.ctx.currentTime;
+    const t1 = t0 + dur;
+
+    const g = audio.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t1);
+    g.connect(audio.master);
+
+    if(noise){
+      const bufSize = Math.floor(audio.ctx.sampleRate * dur);
+      const buf = audio.ctx.createBuffer(1, bufSize, audio.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for(let i=0;i<bufSize;i++){
+        data[i] = (Math.random()*2-1) * Math.pow(1 - i/bufSize, 1.2);
+      }
+      const src = audio.ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(g);
+      src.start(t0);
+      src.stop(t1);
+    } else {
+      const o = audio.ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t0);
+      if(endFreq != null){
+        o.frequency.exponentialRampToValueAtTime(Math.max(30, endFreq), t1);
+      }
+      o.connect(g);
+      o.start(t0);
+      o.stop(t1);
+    }
+  }
+
+  // SFX
+  function sfxShoot(){
+    beep({noise:true, dur:0.05, gain:0.12});
+    beep({type:"triangle", freq:520, endFreq:720, dur:0.06, gain:0.12});
+  }
+  function sfxHit(){
+    beep({type:"square", freq:190, endFreq:120, dur:0.05, gain:0.10});
+    beep({noise:true, dur:0.03, gain:0.06});
+  }
+  function sfxDie(){
+    beep({type:"sawtooth", freq:220, endFreq:70, dur:0.18, gain:0.14});
+    beep({noise:true, dur:0.10, gain:0.08});
+  }
+
   // ===== Enemy Types =====
   const ENEMY = {
-    scout:  { name:"Scout",  hpMul:0.70, spdMul:1.50, dmgMul:0.90, r:14 },   // S
-    soldier:{ name:"Soldier",hpMul:1.00, spdMul:1.00, dmgMul:1.00, r:16 },  // M (shield)
-    shield: { name:"Shield", hpMul:1.20, spdMul:0.90, dmgMul:1.05, r:17, block:0.35, dr:0.70 }, // H (armor+shield)
-    brute:  { name:"Brute",  hpMul:1.90, spdMul:0.72, dmgMul:1.25, r:18 },  // B (spear)
+    scout:  { name:"Scout",  hpMul:0.70, spdMul:1.50, dmgMul:0.90, r:14 },
+    soldier:{ name:"Soldier",hpMul:1.00, spdMul:1.00, dmgMul:1.00, r:16 },
+    shield: { name:"Shield", hpMul:1.20, spdMul:0.90, dmgMul:1.05, r:17, block:0.35, dr:0.70 },
+    brute:  { name:"Brute",  hpMul:1.90, spdMul:0.72, dmgMul:1.25, r:18 },
   };
 
   let NEXT_ID = 1;
 
   const G = {
+    started:false,
     t: 0,
     wave: 1,
     crowns: 0,
@@ -211,7 +332,6 @@
     enemies: [],
     arrows: [],
     particles: [],
-
     crownPops: [],
 
     enemiesToSpawn: 0,
@@ -261,11 +381,9 @@
     G.groundY = Math.floor(H*0.82);
     G.laneY = G.groundY;
 
-    // thinner towers + longer lane
-    const thinW = Math.max(30, Math.floor(W*0.024));
+    const thinW = Math.max(28, Math.floor(W*0.022));
     for(const t of G.towers) t.w = thinW;
 
-    // push towers left
     G.towers[0].x = Math.floor(W*0.07);
     G.towers[1].x = Math.floor(W*0.13);
     G.towers[2].x = Math.floor(W*0.19);
@@ -333,10 +451,20 @@
       r: T.r * (type==="brute" ? 1.2 : 1.0),
       hp, hpMax: hp,
       speed,
-      dead:false,
-      attacking:false,
+
+      state:"alive", // alive|dying|dead
+      attack:false,
       atkCd: rand(0.35,0.60),
       atkT: rand(0.05,0.25),
+
+      stepT: rand(0, 6.28),
+
+      deathT: 0,
+      deathDur: 0.75,
+      rot: 0,
+      rotV: rand(-8, -12) * (Math.random()<0.5 ? 1 : -1),
+      fade: 1,
+
       scale
     };
   }
@@ -451,64 +579,86 @@
   }
 
   function drawStickManWithGear(e){
-    const x = e.x, groundY = e.y;
     const scale = e.scale || 1.0;
-    const attacking = e.attacking;
+
+    const baseX = e.x;
+    const baseY = e.y;
+
+    const step = Math.sin(e.stepT) * 1.0;
+    const armSwing = Math.sin(e.stepT) * (e.state==="alive" ? 1 : 0.2);
+
+    const dying = (e.state==="dying");
+    const rot = dying ? e.rot : 0;
+    const alpha = dying ? e.fade : 1;
+
+    ctx.save();
+    ctx.translate(baseX, baseY);
+    ctx.rotate(rot);
+    ctx.globalAlpha = alpha;
 
     const headR = 5*scale;
     const body = 14*scale;
 
-    const hx = x;
-    const hy = groundY - (headR*2 + body + 8*scale);
+    const torsoTopY = - (body + 14*scale);
+    const headY = torsoTopY - headR - 2*scale;
+    const neckY = torsoTopY + 2*scale;
+    const torsoBottomY = torsoTopY + body;
 
-    const neckY = hy + headR;
-    const torsoY = neckY + body;
     const armY = neckY + 5*scale;
-
     const armOut = 10*scale;
-    const armDown = attacking ? 2*scale : 6*scale;
-    const rightHandX = hx + armOut;
-    const rightHandY = armY + armDown;
+    const armDown = (e.attack ? 2*scale : 6*scale);
 
-    ctx.strokeStyle = "#1c1c1c";
+    const bob = (e.state==="alive" && !e.attack) ? (step * 1.6*scale) : 0;
+    ctx.translate(0, bob);
+
+    ctx.strokeStyle = "#151515";
     ctx.lineWidth = Math.max(2, 2*scale*0.75);
 
     ctx.beginPath();
-    ctx.arc(hx, hy, headR, 0, Math.PI*2);
+    ctx.arc(0, headY, headR, 0, Math.PI*2);
     ctx.stroke();
 
     if(e.type === "shield"){
-      drawArmor(x, neckY+2*scale, 0.75*scale);
+      drawArmor(0, neckY+2*scale, 0.75*scale);
     }
 
     ctx.beginPath();
-    ctx.moveTo(hx, neckY);
-    ctx.lineTo(hx, torsoY);
+    ctx.moveTo(0, neckY);
+    ctx.lineTo(0, torsoBottomY);
     ctx.stroke();
 
+    const leftHandX  = -armOut;
+    const leftHandY  = armY + armDown + armSwing*1.2*scale;
+    const rightHandX =  armOut;
+    const rightHandY = armY + armDown - armSwing*1.2*scale;
+
     ctx.beginPath();
-    ctx.moveTo(hx, armY);
-    ctx.lineTo(hx - armOut, armY + armDown);
-    ctx.moveTo(hx, armY);
+    ctx.moveTo(0, armY);
+    ctx.lineTo(leftHandX, leftHandY);
+    ctx.moveTo(0, armY);
     ctx.lineTo(rightHandX, rightHandY);
     ctx.stroke();
 
     if(e.type === "soldier" || e.type === "shield"){
-      drawShield(x-16*scale, armY+5*scale, 0.95*scale);
+      drawShield(-16*scale, armY+5*scale, 0.95*scale);
     }
 
     if(e.type === "brute"){
-      drawSpearFromHand(rightHandX, rightHandY, 0.65*scale, attacking);
+      drawSpearFromHand(rightHandX, rightHandY, 0.65*scale, e.attack);
     }
 
     const legOut = 8*scale;
     const legDown = 12*scale;
+
+    const legSwing = (e.state==="alive" && !e.attack) ? (step * 4*scale) : (step * 1.2*scale);
     ctx.beginPath();
-    ctx.moveTo(hx, torsoY);
-    ctx.lineTo(hx - legOut, torsoY + legDown);
-    ctx.moveTo(hx, torsoY);
-    ctx.lineTo(hx + legOut, torsoY + legDown);
+    ctx.moveTo(0, torsoBottomY);
+    ctx.lineTo(-legOut, torsoBottomY + legDown + legSwing);
+    ctx.moveTo(0, torsoBottomY);
+    ctx.lineTo( legOut, torsoBottomY + legDown - legSwing);
     ctx.stroke();
+
+    ctx.restore();
   }
 
   // ===== Pixel crowns =====
@@ -581,9 +731,12 @@
   }
 
   function fireVolley(){
+    if(!G.started) return;
     if(aliveArchers()<=0) return;
 
     beginVolley();
+
+    let shotAny = false;
 
     for(let i=0;i<G.archers.length;i++){
       const a = G.archers[i];
@@ -595,7 +748,10 @@
       spawnArrow(i, p.x, p.y, G.aimX, G.aimY + spread);
 
       a.cooldown = 0.55;
+      shotAny = true;
     }
+
+    if(shotAny) sfxShoot();
   }
 
   function resolveVolleyIfReady(){
@@ -649,30 +805,51 @@
     }
   }
 
-  // ===== Kills =====
-  function killEnemyInstant(e){
-    if(e.dead) return;
-    e.dead = true;
-    for(let i=0;i<10;i++){
+  // ===== Death animations & particles =====
+  function bloodBurst(x,y,scale=1){
+    const n = 12;
+    for(let i=0;i<n;i++){
+      const ang = Math.random()*Math.PI*2;
+      const sp = 80 + Math.random()*160;
       G.particles.push({
-        x:e.x, y:e.y-18,
-        vx:(Math.random()*2-1)*180,
-        vy:(Math.random()*2-1)*180 - 90,
-        life:0.55 + Math.random()*0.25
+        x, y,
+        vx: Math.cos(ang)*sp,
+        vy: Math.sin(ang)*sp - 40,
+        life: 0.35 + Math.random()*0.25,
+        kind: "blood",
+        size: 1 + Math.random()*2*scale
       });
     }
   }
 
-  function killEnemy(e){
-    e.dead = true;
+  function startEnemyDeath(e, instant=false){
+    if(e.state!=="alive") return;
+    e.state = "dying";
+    e.attack = false;
+    e.deathT = 0;
+    e.fade = 1;
+    e.rot = 0;
+    e.rotV = rand(-8, -12) * (Math.random()<0.5 ? 1 : -1);
+    e.deathDur = instant ? 0.55 : 0.75;
+
     if(G.volleyActive) G.volleyDeaths.push({ x: e.x, y: e.y });
-    for(let i=0;i<10;i++){
-      G.particles.push({
-        x:e.x, y:e.y-18,
-        vx:(Math.random()*2-1)*160,
-        vy:(Math.random()*2-1)*160 - 80,
-        life:0.6 + Math.random()*0.3
-      });
+
+    bloodBurst(e.x, e.y-28*(e.scale||1), 0.7);
+    sfxDie();
+  }
+
+  function killEnemyInstant(e){
+    if(e.state==="dead" || e.state==="dying") return;
+    e.hp = 0;
+    startEnemyDeath(e, true);
+  }
+
+  function damageEnemy(e, amount){
+    if(e.state!=="alive") return;
+    e.hp -= amount;
+    sfxHit();
+    if(e.hp <= 0){
+      startEnemyDeath(e, false);
     }
   }
 
@@ -684,7 +861,7 @@
   }
 
   function setLogButtonUI(){
-    const ready = (G.logCooldown <= 0 && !G.logActive && aliveArchers()>0);
+    const ready = (G.logCooldown <= 0 && !G.logActive && aliveArchers()>0 && G.started);
     setPowerButtonUI(UI.logBtn, UI.logCd, ready);
     if(!ready){
       const sec = Math.ceil(G.logCooldown);
@@ -693,7 +870,7 @@
   }
 
   function setOilButtonUI(){
-    const ready = (G.oilCooldown <= 0 && !G.oilActive && aliveArchers()>0);
+    const ready = (G.oilCooldown <= 0 && !G.oilActive && aliveArchers()>0 && G.started);
     setPowerButtonUI(UI.oilBtn, UI.oilCd, ready);
     if(!ready){
       const sec = Math.ceil(G.oilCooldown);
@@ -703,6 +880,7 @@
 
   // ===== Log power =====
   function activateLog(){
+    if(!G.started) return;
     if(G.logCooldown > 0 || G.logActive) return;
     if(aliveArchers()<=0) return;
 
@@ -723,7 +901,7 @@
       const left = G.logX - G.logW/2;
       const right = G.logX + G.logW/2;
       for(const e of G.enemies){
-        if(e.dead) continue;
+        if(e.state!=="alive") continue;
         if(e.x >= left && e.x <= right){
           killEnemyInstant(e);
         }
@@ -736,6 +914,7 @@
 
   // ===== Oil power =====
   function activateOil(){
+    if(!G.started) return;
     if(G.oilCooldown > 0 || G.oilActive) return;
     if(aliveArchers()<=0) return;
 
@@ -756,7 +935,7 @@
       G.oilT -= dt;
       const rr = G.oilR * G.oilR;
       for(const e of G.enemies){
-        if(e.dead) continue;
+        if(e.state!=="alive") continue;
         const cx = e.x;
         const cy = e.y - 18;
         if(dist2(cx, cy, G.oilX, G.oilY) <= rr){
@@ -779,6 +958,7 @@
   }
 
   canvas.addEventListener("pointerdown", (ev)=>{
+    if(!G.started) return;
     ev.preventDefault();
     const {x,y} = canvasXY(ev);
     G.aimX = x;
@@ -799,8 +979,26 @@
     activateOil();
   }, {passive:false});
 
-  UI.restart.addEventListener("click", reset);
-  addEventListener("keydown", (e)=>{ if(e.key.toLowerCase()==="r") reset(); });
+  UI.restart.addEventListener("click", ()=>{
+    if(!G.started) return;
+    reset();
+  });
+
+  // Start overlay (also unlocks audio)
+  function startGame(){
+    ensureAudio();
+    if(audio.ctx && audio.ctx.state === "suspended"){
+      audio.ctx.resume().catch(()=>{});
+    }
+    G.started = true;
+    UI.overlay.style.display = "none";
+    reset();
+  }
+  UI.startBtn.addEventListener("click", startGame);
+  UI.overlay.addEventListener("pointerdown", (ev)=>{
+    ev.preventDefault();
+    startGame();
+  }, {passive:false});
 
   // ===== Background =====
   function drawBackground(){
@@ -913,7 +1111,6 @@
     ctx.restore();
   }
 
-  // ===== Update / Draw =====
   function update(dt){
     layout();
 
@@ -924,7 +1121,7 @@
 
     for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
 
-    if(aliveArchers()>0){
+    if(G.started && aliveArchers()>0){
       G.nextSpawn -= dt;
       if(G.spawnedThisWave < G.enemiesToSpawn && G.nextSpawn <= 0){
         G.enemies.push(makeEnemy(G.wave));
@@ -941,11 +1138,25 @@
     const stopX = t ? (t.x + t.w/2 + 18) : -9999;
 
     for(const e of G.enemies){
-      if(e.dead) continue;
+      if(e.state==="dead") continue;
       e.y = G.groundY;
 
+      if(e.state==="alive"){
+        e.stepT += dt * (3.5 + e.speed*0.03);
+      }
+
+      if(e.state==="dying"){
+        e.deathT += dt;
+        e.rot += e.rotV * dt;
+        e.fade = clamp(1 - (e.deathT / e.deathDur), 0, 1);
+        if(e.deathT >= e.deathDur){
+          e.state = "dead";
+        }
+        continue;
+      }
+
       if(t && e.x <= stopX){
-        e.attacking = true;
+        e.attack = true;
         e.atkT -= dt;
         if(e.atkT <= 0){
           e.atkT = e.atkCd;
@@ -954,7 +1165,7 @@
           damageRightmostTower(dmg);
         }
       } else {
-        e.attacking = false;
+        e.attack = false;
         e.x -= e.speed * dt;
       }
     }
@@ -979,7 +1190,7 @@
       }
 
       for(const e of G.enemies){
-        if(e.dead) continue;
+        if(e.state!=="alive") continue;
 
         const cx = e.x;
         const cy = e.y - 28 * (e.scale || 1.0) * 0.9;
@@ -998,26 +1209,7 @@
 
             const baseDmg = (26 + (G.wave-1)*1.7) * G.dmgMult;
             const dr = (T.dr != null) ? T.dr : 1.0;
-            e.hp -= baseDmg * dr;
-
-            for(let i=0;i<6;i++){
-              G.particles.push({
-                x:cx, y:cy,
-                vx:(Math.random()*2-1)*160,
-                vy:(Math.random()*2-1)*160 - 50,
-                life:0.25 + Math.random()*0.25
-              });
-            }
-            if(e.hp <= 0) killEnemy(e);
-          } else {
-            for(let i=0;i<6;i++){
-              G.particles.push({
-                x:cx, y:cy,
-                vx:(Math.random()*2-1)*120,
-                vy:(Math.random()*2-1)*120 - 70,
-                life:0.20 + Math.random()*0.18
-              });
-            }
+            damageEnemy(e, baseDmg * dr);
           }
           break;
         }
@@ -1044,7 +1236,7 @@
       resolveVolleyIfReady();
     }
 
-    const anyAlive = G.enemies.some(e=>!e.dead);
+    const anyAlive = G.enemies.some(e=>e.state==="alive" || e.state==="dying");
     const allSpawned = (G.spawnedThisWave >= G.enemiesToSpawn);
     if(allSpawned && !anyAlive && aliveArchers()>0){
       G.waveClearT += dt;
@@ -1053,7 +1245,7 @@
       G.waveClearT = 0;
     }
 
-    if(aliveArchers()<=0 && G.crowns > G.highScore){
+    if(G.started && aliveArchers()<=0 && G.crowns > G.highScore){
       G.highScore = G.crowns;
       UI.high.textContent = String(G.highScore);
       saveHighScore(G.highScore);
@@ -1065,7 +1257,6 @@
 
     drawBackground();
 
-    // towers
     for(const t of G.towers){
       const h = towerHeight(t);
       const x = t.x - t.w/2;
@@ -1078,9 +1269,9 @@
       ctx.fillRect(x-4, y-12, t.w+8, 14);
 
       ctx.fillStyle = "rgba(0,0,0,.35)";
-      ctx.fillRect(x, y-26, t.w, 8);
+      ctx.fillRect(x, y-22, t.w, 7);
       ctx.fillStyle = "#2aff6a";
-      ctx.fillRect(x, y-26, t.w*(t.hp/100), 8);
+      ctx.fillRect(x, y-22, t.w*(t.hp/100), 7);
 
       if(t.hp<=0){
         ctx.fillStyle = "#3c3f46";
@@ -1088,7 +1279,6 @@
       }
     }
 
-    // archers
     for(const a of G.archers){
       const p = archerPos(a);
       if(!a.alive){
@@ -1112,42 +1302,34 @@
       ctx.stroke();
     }
 
-    // aim crosshair
-    ctx.strokeStyle = "rgba(0,0,0,.18)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(G.aimX-10, G.aimY); ctx.lineTo(G.aimX+10, G.aimY);
-    ctx.moveTo(G.aimX, G.aimY-10); ctx.lineTo(G.aimX, G.aimY+10);
-    ctx.stroke();
+    if(G.started){
+      ctx.strokeStyle = "rgba(0,0,0,.18)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(G.aimX-10, G.aimY); ctx.lineTo(G.aimX+10, G.aimY);
+      ctx.moveTo(G.aimX, G.aimY-10); ctx.lineTo(G.aimX, G.aimY+10);
+      ctx.stroke();
+    }
 
-    // enemies
     for(const e of G.enemies){
-      if(e.dead) continue;
+      if(e.state==="dead") continue;
 
       drawStickManWithGear(e);
 
-      const bw = 40, bh = 5;
-      ctx.fillStyle = "rgba(0,0,0,.35)";
-      ctx.fillRect(e.x - bw/2, e.y - (68*(e.scale||1)), bw, bh);
-      ctx.fillStyle = "#ff3c3c";
-      ctx.fillRect(e.x - bw/2, e.y - (68*(e.scale||1)), bw*(e.hp/e.hpMax), bh);
-
-      const badge = (e.type==="scout")?"S" : (e.type==="soldier")?"M" : (e.type==="shield")?"H" : "B";
-      ctx.fillStyle = "rgba(0,0,0,.35)";
-      ctx.fillRect(e.x-8, e.y - (88*(e.scale||1)), 16, 16);
-      ctx.fillStyle = "#fff";
-      ctx.font = "800 11px system-ui,-apple-system,Segoe UI,Roboto";
-      ctx.textAlign = "center";
-      ctx.fillText(badge, e.x, e.y - (76*(e.scale||1)));
-      ctx.textAlign = "left";
+      if(e.state==="alive"){
+        const bw = 40, bh = 5;
+        ctx.fillStyle = "rgba(0,0,0,.35)";
+        ctx.fillRect(e.x - bw/2, e.y - (68*(e.scale||1)), bw, bh);
+        ctx.fillStyle = "#ff3c3c";
+        ctx.fillRect(e.x - bw/2, e.y - (68*(e.scale||1)), bw*(Math.max(0,e.hp)/e.hpMax), bh);
+      }
     }
 
     drawOilPuddle();
     drawLog();
 
-    // arrows
     for(const a of G.arrows){
-      ctx.strokeStyle = "rgba(0,0,0,.20)";
+      ctx.strokeStyle = "rgba(0,0,0,.18)";
       ctx.lineWidth = 2;
       ctx.beginPath();
       for(let i=0;i<a.trail.length;i++){
@@ -1169,48 +1351,26 @@
       ctx.fill();
     }
 
-    // particles
     for(const p of G.particles){
       ctx.globalAlpha = clamp(p.life,0,1);
-      ctx.fillStyle = "rgba(255,255,255,.85)";
-      ctx.fillRect(p.x, p.y, 2, 2);
+      if(p.kind==="blood"){
+        ctx.fillStyle = "rgba(170,30,40,.95)";
+        ctx.fillRect(p.x, p.y, p.size||2, p.size||2);
+      } else {
+        ctx.fillStyle = "rgba(255,255,255,.85)";
+        ctx.fillRect(p.x, p.y, p.size||2, p.size||2);
+      }
     }
     ctx.globalAlpha = 1;
 
-    // crown pops
     for(const c of G.crownPops){
       const alpha = clamp(c.life, 0, 1);
       ctx.globalAlpha = alpha;
       drawCrownStack(c.count, c.x, c.y);
       ctx.globalAlpha = 1;
     }
-
-    if(G.waveClearT>0.05 && aliveArchers()>0){
-      ctx.fillStyle = "rgba(0,0,0,.22)";
-      ctx.fillRect(W/2-120, 14, 240, 36);
-      ctx.fillStyle = "#fff";
-      ctx.font = "900 16px system-ui,-apple-system,Segoe UI,Roboto";
-      ctx.textAlign = "center";
-      ctx.fillText("Wave cleared!", W/2, 37);
-      ctx.textAlign = "left";
-    }
-
-    if(aliveArchers()<=0){
-      ctx.fillStyle = "rgba(0,0,0,.48)";
-      ctx.fillRect(0,0,W,H);
-      ctx.fillStyle = "#fff";
-      ctx.font = "900 36px system-ui,-apple-system,Segoe UI,Roboto";
-      ctx.textAlign = "center";
-      ctx.fillText("GAME OVER", W/2, H*0.44);
-      ctx.font = "800 18px system-ui,-apple-system,Segoe UI,Roboto";
-      ctx.fillText(`Crowns: ${G.crowns}  (High: ${G.highScore})`, W/2, H*0.44 + 34);
-      ctx.font = "700 14px system-ui,-apple-system,Segoe UI,Roboto";
-      ctx.fillText("Tap Restart to play again.", W/2, H*0.44 + 58);
-      ctx.textAlign = "left";
-    }
   }
 
-  // ===== Main loop =====
   let last = performance.now();
   function frame(now){
     const dt = Math.min(0.033, (now-last)/1000);
@@ -1223,7 +1383,7 @@
     requestAnimationFrame(frame);
   }
 
-  // init
+  layout();
   reset();
   requestAnimationFrame(frame);
 })();
