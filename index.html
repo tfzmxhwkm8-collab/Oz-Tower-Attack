@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Oz Tower Attack </title>
+<title>Castle Attack - One Lane (Stick Enemies)</title>
 <style>
   html,body{margin:0;height:100%;background:#0f1116;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto}
   canvas{display:block;width:100vw;height:100vh;touch-action:manipulation;-webkit-user-select:none;user-select:none}
@@ -12,11 +12,11 @@
     position:fixed;left:10px;top:10px;z-index:5;color:#e8ecff;
     background:rgba(0,0,0,.35);padding:10px 12px;border-radius:10px;
     backdrop-filter: blur(6px);
-    font-size:14px;line-height:1.35;min-width:300px;
+    font-size:14px;line-height:1.35;min-width:320px;
     padding-top: calc(10px + env(safe-area-inset-top));
     padding-left: calc(12px + env(safe-area-inset-left));
   }
-  .row{display:flex;align-items:center;gap:10px;justify-content:space-between}
+  .row{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}
   .leftcol{display:flex;flex-direction:column;gap:3px}
   .hint{opacity:.85;font-size:12px;margin-top:6px}
   .btn{
@@ -72,7 +72,7 @@
   <div class="row">
     <div class="leftcol">
       <div><b>Wave:</b> <span id="wave">1</span></div>
-      <div><b>Crowns:</b> <span id="crowns">0</span></div>
+      <div><b>Crowns:</b> <span id="crowns">0</span> &nbsp; <b>High:</b> <span id="high">0</span></div>
       <div><b>Archers Alive:</b> <span id="alive">3</span>/3</div>
       <div><b>Towers:</b> A <span id="ta">100</span>% &nbsp; B <span id="tb">100</span>% &nbsp; C <span id="tc">100</span>%</div>
       <div><b>DMG:</b> <span id="dmg">x1.0</span> &nbsp; <b>3-hit streak:</b> <span id="streak">0</span></div>
@@ -99,9 +99,12 @@
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d", { alpha:false });
 
+  const STORAGE_KEY = "castle_attack_highscore_v1";
+
   const UI = {
     wave: document.getElementById("wave"),
     crowns: document.getElementById("crowns"),
+    high: document.getElementById("high"),
     alive: document.getElementById("alive"),
     ta: document.getElementById("ta"),
     tb: document.getElementById("tb"),
@@ -118,6 +121,14 @@
   const dist2=(ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by;return dx*dx+dy*dy;};
   const rand=(a,b)=>a+Math.random()*(b-a);
 
+  function loadHighScore(){
+    const n = Number(localStorage.getItem(STORAGE_KEY) || "0");
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+  function saveHighScore(n){
+    try{ localStorage.setItem(STORAGE_KEY, String(Math.max(0, Math.floor(n)))); }catch(_){}
+  }
+
   function resize(){
     const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
     canvas.width = Math.floor(innerWidth*dpr);
@@ -131,10 +142,10 @@
 
   // ===== Enemy Types (stats only; visuals are stickmen) =====
   const ENEMY = {
-    scout:  { name:"Scout",  hpMul:0.70, spdMul:1.50, dmgMul:0.90, r:14 },
-    soldier:{ name:"Soldier",hpMul:1.00, spdMul:1.00, dmgMul:1.00, r:16 },
-    brute:  { name:"Brute",  hpMul:1.90, spdMul:0.72, dmgMul:1.25, r:18 },
-    shield: { name:"Shield", hpMul:1.20, spdMul:0.90, dmgMul:1.05, r:17, block:0.35, dr:0.70 }
+    scout:  { name:"Scout",  hpMul:0.70, spdMul:1.50, dmgMul:0.90, r:14 },   // S
+    soldier:{ name:"Soldier",hpMul:1.00, spdMul:1.00, dmgMul:1.00, r:16 },  // M (shield)
+    shield: { name:"Shield", hpMul:1.20, spdMul:0.90, dmgMul:1.05, r:17, block:0.35, dr:0.70 }, // H (armor+shield)
+    brute:  { name:"Brute",  hpMul:1.90, spdMul:0.72, dmgMul:1.25, r:18 },  // B (spear)
   };
 
   let NEXT_ID = 1;
@@ -143,6 +154,7 @@
     t: 0,
     wave: 1,
     crowns: 0,
+    highScore: loadHighScore(),
 
     groundY: 0,
     laneY: 0,
@@ -171,12 +183,12 @@
     volleyResolveT: 0,
     volleyDeaths: [],
 
-    // (3) Damage multiplier for consecutive 3-hit volleys
-    threeHitStreak: 0,   // consecutive volleys with hitCount===3
+    // Damage multiplier for consecutive 3-hit volleys
+    threeHitStreak: 0,
     dmgMult: 1.0,
 
-    // (1)(2) Log special power
-    logCooldown: 0,      // seconds until ready (0 = ready)
+    // Log special power
+    logCooldown: 0,
     logActive: false,
     logX: 0,
     logY: 0,
@@ -193,6 +205,8 @@
     archers: []
   };
 
+  UI.high.textContent = String(G.highScore);
+
   function layout(){
     const W = innerWidth, H = innerHeight;
     G.groundY = Math.floor(H*0.82);
@@ -205,7 +219,7 @@
     // push towers left to lengthen lane
     G.towers[0].x = Math.floor(W*0.07); // A
     G.towers[1].x = Math.floor(W*0.13); // B
-    G.towers[2].x = Math.floor(W*0.19); // C (rightmost attacked first)
+    G.towers[2].x = Math.floor(W*0.19); // C
 
     for(const t of G.towers){
       t.baseY = G.groundY;
@@ -329,38 +343,97 @@
     UI.crowns.textContent = "0";
     UI.dmg.textContent = "x1.0";
     UI.streak.textContent = "0";
+    UI.high.textContent = String(G.highScore);
 
     G.aimActive = false;
     startWave(1);
   }
 
-  // ===== Stick Figure Drawing =====
-  function drawStickMan(x, groundY, scale, attacking){
+  // ===== Stick Figure + Gear Drawing =====
+  function drawShield(x,y,scale){
+    // simple round shield
+    const r = 7*scale;
+    ctx.fillStyle = "#6b4a10";
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#c7a24b";
+    ctx.beginPath(); ctx.arc(x,y,r*0.72,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0,.18)";
+    ctx.fillRect(x-1*scale, y-r*0.6, 2*scale, r*1.2);
+    ctx.fillStyle = "#cfd6e6";
+    ctx.beginPath(); ctx.arc(x,y,1.5*scale,0,Math.PI*2); ctx.fill();
+  }
+
+  function drawArmor(x,y,scale){
+    // chest plate
+    ctx.fillStyle = "#6f7682";
+    ctx.fillRect(x-7*scale, y-2*scale, 14*scale, 14*scale);
+    ctx.fillStyle = "rgba(255,255,255,.18)";
+    ctx.fillRect(x-5*scale, y, 10*scale, 2*scale);
+    ctx.fillStyle = "rgba(0,0,0,.18)";
+    ctx.fillRect(x-6*scale, y+6*scale, 12*scale, 2*scale);
+  }
+
+  function drawSpear(x1,y1,x2,y2,scale){
+    // shaft
+    ctx.strokeStyle = "#5a3b18";
+    ctx.lineWidth = 3*scale;
+    ctx.beginPath();
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.stroke();
+    // tip
+    ctx.fillStyle = "#c0c6d3";
+    ctx.beginPath();
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-10*scale, y2-4*scale);
+    ctx.lineTo(x2-10*scale, y2+4*scale);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawStickManWithGear(e){
+    const x = e.x, groundY = e.y, scale = 1.0;
+    const attacking = e.attacking;
+
     const headR = 5*scale;
     const body = 14*scale;
 
     const hx = x;
     const hy = groundY - (headR*2 + body + 8*scale);
 
+    // gear reference points
+    const neckY = hy + headR;
+    const torsoY = neckY + body;
+    const armY = neckY + 5*scale;
+
+    // spear behind body for brute
+    if(e.type === "brute"){
+      drawSpear(x+6*scale, armY-2*scale, x+34*scale, armY-10*scale, 0.55);
+    }
+
+    // head/body
     ctx.strokeStyle = "#1c1c1c";
     ctx.lineWidth = 2;
 
+    // head
     ctx.beginPath();
     ctx.arc(hx, hy, headR, 0, Math.PI*2);
     ctx.stroke();
 
-    const neckY = hy + headR;
-    const torsoY = neckY + body;
+    // armor for shield enemy (H)
+    if(e.type === "shield"){
+      drawArmor(x, neckY+2*scale, 0.75);
+    }
 
+    // body line
     ctx.beginPath();
     ctx.moveTo(hx, neckY);
     ctx.lineTo(hx, torsoY);
     ctx.stroke();
 
-    const armY = neckY + 5*scale;
+    // arms
     const armOut = 10*scale;
     const armDown = attacking ? 2*scale : 6*scale;
-
     ctx.beginPath();
     ctx.moveTo(hx, armY);
     ctx.lineTo(hx - armOut, armY + armDown);
@@ -368,6 +441,12 @@
     ctx.lineTo(hx + armOut, armY + armDown);
     ctx.stroke();
 
+    // shield for M and H (soldier + shield)
+    if(e.type === "soldier" || e.type === "shield"){
+      drawShield(x-16*scale, armY+5*scale, 0.95);
+    }
+
+    // legs
     const legOut = 8*scale;
     const legDown = 12*scale;
     ctx.beginPath();
@@ -487,13 +566,19 @@
     UI.streak.textContent = String(G.threeHitStreak);
     UI.dmg.textContent = (G.dmgMult === 1.5) ? "x1.5" : "x1.0";
 
-    // Award crowns to total based on volley hits (1/2/3)
+    // Award crowns based on volley hits
     if(hitCount > 0){
       G.crowns += hitCount;
       UI.crowns.textContent = String(G.crowns);
+
+      if(G.crowns > G.highScore){
+        G.highScore = G.crowns;
+        UI.high.textContent = String(G.highScore);
+        saveHighScore(G.highScore);
+      }
     }
 
-    // Show crown pops above any enemies killed during THIS volley (based on volley hit count)
+    // crown pops for enemies killed during this volley
     if(hitCount > 0){
       for(const d of G.volleyDeaths){
         G.crownPops.push({
@@ -520,7 +605,7 @@
     }
   }
 
-  // ===== Log Power (NEW) =====
+  // ===== Log Power =====
   function setLogButtonUI(){
     const ready = (G.logCooldown <= 0 && !G.logActive && aliveArchers()>0);
     UI.logBtn.classList.toggle("ready", ready);
@@ -554,7 +639,6 @@
       G.logX -= G.logV * dt;
       G.logRot += 8 * dt;
 
-      // kill enemies touched by log rectangle
       const left = G.logX - G.logW/2;
       const right = G.logX + G.logW/2;
       for(const e of G.enemies){
@@ -564,7 +648,6 @@
         }
       }
 
-      // finished traveling
       if(G.logX < -G.logW){
         G.logActive = false;
       }
@@ -577,7 +660,6 @@
     if(e.dead) return;
     e.dead = true;
 
-    // small burst
     for(let i=0;i<10;i++){
       G.particles.push({
         x:e.x, y:e.y-18,
@@ -609,7 +691,6 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
-  // Aim/shoot
   canvas.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     const {x,y} = canvasXY(ev);
@@ -619,7 +700,6 @@
     fireVolley();
   }, {passive:false});
 
-  // Log button (stop it from shooting)
   UI.logBtn.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     ev.stopPropagation();
@@ -702,7 +782,7 @@
         continue;
       }
 
-      // collision with enemies (circle around torso area)
+      // collision with enemies
       for(const e of G.enemies){
         if(e.dead) continue;
 
@@ -721,9 +801,7 @@
               G.volleyHits[ar.archerIndex] = true;
             }
 
-            // (3) Apply damage multiplier when streak >= 3
             const baseDmg = (26 + (G.wave-1)*1.7) * G.dmgMult;
-
             const dr = (T.dr != null) ? T.dr : 1.0;
             e.hp -= baseDmg * dr;
 
@@ -783,9 +861,79 @@
     } else {
       G.waveClearT = 0;
     }
+
+    // update high score on game over too (in case log kills don't award crowns)
+    if(aliveArchers()<=0 && G.crowns > G.highScore){
+      G.highScore = G.crowns;
+      UI.high.textContent = String(G.highScore);
+      saveHighScore(G.highScore);
+    }
   }
 
-  // ===== Draw =====
+  // ===== Draw Background: forest + hills (NEW) =====
+  function drawBackground(){
+    const W = innerWidth, H = innerHeight;
+
+    // sky gradient
+    const g = ctx.createLinearGradient(0,0,0,G.groundY);
+    g.addColorStop(0, "#9fd2ff");
+    g.addColorStop(1, "#d9f1ff");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    // far hills
+    ctx.fillStyle = "#7fb08d";
+    ctx.beginPath();
+    ctx.moveTo(0, G.groundY-170);
+    ctx.quadraticCurveTo(W*0.18, G.groundY-260, W*0.36, G.groundY-190);
+    ctx.quadraticCurveTo(W*0.52, G.groundY-120, W*0.70, G.groundY-210);
+    ctx.quadraticCurveTo(W*0.86, G.groundY-290, W, G.groundY-185);
+    ctx.lineTo(W, G.groundY);
+    ctx.lineTo(0, G.groundY);
+    ctx.closePath();
+    ctx.fill();
+
+    // nearer hills
+    ctx.fillStyle = "#6a9b73";
+    ctx.beginPath();
+    ctx.moveTo(0, G.groundY-115);
+    ctx.quadraticCurveTo(W*0.22, G.groundY-195, W*0.44, G.groundY-135);
+    ctx.quadraticCurveTo(W*0.60, G.groundY-90,  W*0.76, G.groundY-150);
+    ctx.quadraticCurveTo(W*0.90, G.groundY-210, W, G.groundY-120);
+    ctx.lineTo(W, G.groundY);
+    ctx.lineTo(0, G.groundY);
+    ctx.closePath();
+    ctx.fill();
+
+    // forest silhouette line (trees)
+    const treeY = G.groundY - 155;
+    ctx.fillStyle = "rgba(22,55,33,.55)";
+    for(let i=0;i<36;i++){
+      const x = (i/35)*W + Math.sin(i*1.7)*8;
+      const h = 34 + (i%7)*6;
+      ctx.beginPath();
+      ctx.moveTo(x, treeY);
+      ctx.lineTo(x-10, treeY+h);
+      ctx.lineTo(x+10, treeY+h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(x-2, treeY+h, 4, 10);
+    }
+
+    // ground
+    ctx.fillStyle = "#5f8f4a";
+    ctx.fillRect(0, G.groundY, W, H-G.groundY);
+
+    // ground line
+    ctx.strokeStyle = "rgba(0,0,0,.18)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, G.groundY);
+    ctx.lineTo(W, G.groundY);
+    ctx.stroke();
+  }
+
+  // ===== Draw Log =====
   function drawLog(){
     if(!G.logActive) return;
 
@@ -818,7 +966,7 @@
     ctx.restore();
   }
 
-  // polyfill-ish for roundRect on some browsers
+  // roundRect polyfill
   if(!CanvasRenderingContext2D.prototype.roundRect){
     CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
       r = Math.min(r, w/2, h/2);
@@ -833,28 +981,12 @@
     };
   }
 
+  // ===== Draw =====
   function draw(){
     const W = innerWidth, H = innerHeight;
 
-    // sky
-    ctx.fillStyle = "#bfd3ff";
-    ctx.fillRect(0,0,W,H);
-
-    // far haze
-    ctx.fillStyle = "#93b685";
-    ctx.fillRect(0, G.groundY-160, W, 160);
-
-    // ground
-    ctx.fillStyle = "#6b8f52";
-    ctx.fillRect(0, G.groundY, W, H-G.groundY);
-
-    // ground line
-    ctx.strokeStyle = "rgba(0,0,0,.18)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, G.groundY);
-    ctx.lineTo(W, G.groundY);
-    ctx.stroke();
+    // NEW background
+    drawBackground();
 
     // towers
     for(const t of G.towers){
@@ -912,17 +1044,20 @@
     ctx.moveTo(G.aimX, G.aimY-10); ctx.lineTo(G.aimX, G.aimY+10);
     ctx.stroke();
 
-    // enemies
+    // enemies with gear (NEW)
     for(const e of G.enemies){
       if(e.dead) continue;
-      drawStickMan(e.x, e.y, 1.0, e.attacking);
 
+      drawStickManWithGear(e);
+
+      // hp
       const bw = 40, bh = 5;
       ctx.fillStyle = "rgba(0,0,0,.35)";
       ctx.fillRect(e.x - bw/2, e.y - 68, bw, bh);
       ctx.fillStyle = "#ff3c3c";
       ctx.fillRect(e.x - bw/2, e.y - 68, bw*(e.hp/e.hpMax), bh);
 
+      // badge
       const badge = (e.type==="scout")?"S" : (e.type==="soldier")?"M" : (e.type==="shield")?"H" : "B";
       ctx.fillStyle = "rgba(0,0,0,.35)";
       ctx.fillRect(e.x-8, e.y-88, 16, 16);
@@ -933,7 +1068,7 @@
       ctx.textAlign = "left";
     }
 
-    // log (draw above ground & below arrows)
+    // log (above ground & below arrows)
     drawLog();
 
     // arrows
@@ -996,7 +1131,7 @@
       ctx.textAlign = "center";
       ctx.fillText("GAME OVER", W/2, H*0.44);
       ctx.font = "800 18px system-ui,-apple-system,Segoe UI,Roboto";
-      ctx.fillText(`Crowns: ${G.crowns}`, W/2, H*0.44 + 34);
+      ctx.fillText(`Crowns: ${G.crowns}  (High: ${G.highScore})`, W/2, H*0.44 + 34);
       ctx.font = "700 14px system-ui,-apple-system,Segoe UI,Roboto";
       ctx.fillText("Tap Restart to play again.", W/2, H*0.44 + 58);
       ctx.textAlign = "left";
@@ -1016,6 +1151,7 @@
     requestAnimationFrame(frame);
   }
 
+  setLogButtonUI();
   reset();
   requestAnimationFrame(frame);
 })();
