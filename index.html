@@ -12,11 +12,11 @@
     position:fixed;left:10px;top:10px;z-index:5;color:#e8ecff;
     background:rgba(0,0,0,.35);padding:10px 12px;border-radius:10px;
     backdrop-filter: blur(6px);
-    font-size:14px;line-height:1.35;min-width:320px;
+    font-size:14px;line-height:1.35;min-width:340px;
     padding-top: calc(10px + env(safe-area-inset-top));
     padding-left: calc(12px + env(safe-area-inset-left));
   }
-  .row{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}
+  .row{display:flex;align-items:flex-start;gap:12px;justify-content:space-between}
   .leftcol{display:flex;flex-direction:column;gap:3px}
   .hint{opacity:.85;font-size:12px;margin-top:6px}
   .btn{
@@ -25,20 +25,28 @@
     user-select:none
   }
 
-  /* === Log power button === */
+  /* === Power buttons === */
+  .powerStack{display:flex;flex-direction:column;gap:10px;align-items:center}
   .powerBtn{
     width:46px;height:46px;border-radius:50%;
     display:flex;align-items:center;justify-content:center;
     border:2px solid rgba(0,0,0,.25);
     box-shadow:0 2px 8px rgba(0,0,0,.25);
-    user-select:none;
-    -webkit-user-select:none;
+    user-select:none;-webkit-user-select:none;
     touch-action:manipulation;
     position:relative;
   }
   .powerBtn.ready{ background:#ffffff; }
   .powerBtn.cooldown{ background:#9aa0a6; }
 
+  .coolText{
+    position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);
+    font-size:11px;font-weight:800;color:#e8ecff;
+    text-shadow:0 1px 2px rgba(0,0,0,.45);
+    pointer-events:none;
+  }
+
+  /* Log icon */
   .logIcon{
     width:28px;height:12px;border-radius:8px;
     background:#8b5a2b;
@@ -57,11 +65,25 @@
     background:rgba(255,255,255,.18);
     border-radius:6px;
   }
-  .coolText{
-    position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);
-    font-size:11px;font-weight:800;color:#e8ecff;
-    text-shadow:0 1px 2px rgba(0,0,0,.45);
-    pointer-events:none;
+
+  /* Oil icon */
+  .oilIcon{
+    width:22px;height:26px;
+    position:relative;
+    transform: rotate(-8deg);
+  }
+  .oilIcon:before{
+    content:"";
+    position:absolute;left:50%;top:2px;transform:translateX(-50%);
+    width:18px;height:18px;border-radius:50%;
+    background:#1d1f23;
+    box-shadow: inset 0 2px 0 rgba(255,255,255,.10);
+  }
+  .oilIcon:after{
+    content:"";
+    position:absolute;left:50%;top:0px;transform:translateX(-50%);
+    width:10px;height:16px;border-radius:10px 10px 12px 12px;
+    background:#1d1f23;
   }
 </style>
 </head>
@@ -78,11 +100,17 @@
       <div><b>DMG:</b> <span id="dmg">x1.0</span> &nbsp; <b>3-hit streak:</b> <span id="streak">0</span></div>
     </div>
 
-    <!-- Log Power Button -->
-    <div>
+    <div class="powerStack">
+      <!-- Log Power Button -->
       <div id="logBtn" class="powerBtn ready" title="Log Power">
         <div class="logIcon"></div>
         <div id="logCd" class="coolText"></div>
+      </div>
+
+      <!-- Oil Power Button (NEW) -->
+      <div id="oilBtn" class="powerBtn ready" title="Oil Dump">
+        <div class="oilIcon"></div>
+        <div id="oilCd" class="coolText"></div>
       </div>
     </div>
   </div>
@@ -114,6 +142,8 @@
     restart: document.getElementById("restart"),
     logBtn: document.getElementById("logBtn"),
     logCd: document.getElementById("logCd"),
+    oilBtn: document.getElementById("oilBtn"),
+    oilCd: document.getElementById("oilCd"),
   };
 
   // ===== Helpers =====
@@ -140,7 +170,7 @@
   addEventListener("resize", resize, {passive:true});
   resize();
 
-  // ===== Enemy Types (stats only; visuals are stickmen) =====
+  // ===== Enemy Types =====
   const ENEMY = {
     scout:  { name:"Scout",  hpMul:0.70, spdMul:1.50, dmgMul:0.90, r:14 },   // S
     soldier:{ name:"Soldier",hpMul:1.00, spdMul:1.00, dmgMul:1.00, r:16 },  // M (shield)
@@ -187,7 +217,7 @@
     threeHitStreak: 0,
     dmgMult: 1.0,
 
-    // Log special power
+    // Log power
     logCooldown: 0,
     logActive: false,
     logX: 0,
@@ -196,6 +226,14 @@
     logH: 26,
     logV: 920,
     logRot: 0,
+
+    // Oil power (NEW)
+    oilCooldown: 0,
+    oilActive: false,
+    oilT: 0,      // remaining oil duration
+    oilX: 0,
+    oilY: 0,
+    oilR: 76,     // kill radius near tower
 
     towers: [
       { id:"A", hp:100, maxH:245, w:52, x:0, baseY:0, archers:[] },
@@ -217,16 +255,17 @@
     for(const t of G.towers) t.w = thinW;
 
     // push towers left to lengthen lane
-    G.towers[0].x = Math.floor(W*0.07); // A
-    G.towers[1].x = Math.floor(W*0.13); // B
-    G.towers[2].x = Math.floor(W*0.19); // C
+    G.towers[0].x = Math.floor(W*0.07);
+    G.towers[1].x = Math.floor(W*0.13);
+    G.towers[2].x = Math.floor(W*0.19);
 
-    for(const t of G.towers){
-      t.baseY = G.groundY;
-    }
+    for(const t of G.towers) t.baseY = G.groundY;
 
     // log lane Y
     G.logY = G.groundY - 10;
+
+    // oil puddle y
+    G.oilY = G.groundY - 2;
 
     if(!G.aimActive){
       G.aimX = Math.floor(W*0.72);
@@ -278,18 +317,22 @@
     const baseSpd = 36 + (w-1)*3.2;
     const speed = baseSpd * T.spdMul * (0.85 + Math.random()*0.25);
 
+    // (1) make brute 2x taller visually (scale used only for drawing + hit bubble slightly)
+    const scale = (type==="brute") ? 2.0 : 1.0;
+
     return {
       id: NEXT_ID++,
       type,
       x: W + 80 + Math.random()*160,
       y: G.laneY,
-      r: T.r,
+      r: T.r * (type==="brute" ? 1.2 : 1.0), // slightly bigger hit bubble so spear guy feels chunky
       hp, hpMax: hp,
       speed,
       dead:false,
       attacking:false,
       atkCd: rand(0.35,0.60),
       atkT: rand(0.05,0.25),
+      scale
     };
   }
 
@@ -333,6 +376,11 @@
     G.logX = innerWidth + 200;
     G.logRot = 0;
 
+    // oil power
+    G.oilCooldown = 0;
+    G.oilActive = false;
+    G.oilT = 0;
+
     for(const t of G.towers) t.hp = 100;
 
     G.archers = [ makeArcher(0), makeArcher(1), makeArcher(2) ];
@@ -345,13 +393,12 @@
     UI.streak.textContent = "0";
     UI.high.textContent = String(G.highScore);
 
-    G.aimActive = false;
+    G.aimActive = = false;
     startWave(1);
   }
 
-  // ===== Stick Figure + Gear Drawing =====
+  // ===== Gear Drawing =====
   function drawShield(x,y,scale){
-    // simple round shield
     const r = 7*scale;
     ctx.fillStyle = "#6b4a10";
     ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
@@ -364,7 +411,6 @@
   }
 
   function drawArmor(x,y,scale){
-    // chest plate
     ctx.fillStyle = "#6f7682";
     ctx.fillRect(x-7*scale, y-2*scale, 14*scale, 14*scale);
     ctx.fillStyle = "rgba(255,255,255,.18)";
@@ -373,26 +419,39 @@
     ctx.fillRect(x-6*scale, y+6*scale, 12*scale, 2*scale);
   }
 
-  function drawSpear(x1,y1,x2,y2,scale){
-    // shaft
+  // (1) Spear held in hand for brute
+  function drawSpearFromHand(handX, handY, scale, attacking){
+    const shaftLen = 34*scale;
+    const tilt = attacking ? -0.28 : -0.18; // radians-ish feel
+    const tipX = handX + Math.cos(tilt)*shaftLen;
+    const tipY = handY + Math.sin(tilt)*shaftLen;
+
     ctx.strokeStyle = "#5a3b18";
     ctx.lineWidth = 3*scale;
     ctx.beginPath();
-    ctx.moveTo(x1,y1);
-    ctx.lineTo(x2,y2);
+    ctx.moveTo(handX, handY);
+    ctx.lineTo(tipX, tipY);
     ctx.stroke();
+
     // tip
     ctx.fillStyle = "#c0c6d3";
     ctx.beginPath();
-    ctx.moveTo(x2,y2);
-    ctx.lineTo(x2-10*scale, y2-4*scale);
-    ctx.lineTo(x2-10*scale, y2+4*scale);
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX-10*scale, tipY-4*scale);
+    ctx.lineTo(tipX-10*scale, tipY+4*scale);
     ctx.closePath();
+    ctx.fill();
+
+    // butt
+    ctx.fillStyle = "rgba(0,0,0,.20)";
+    ctx.beginPath();
+    ctx.arc(handX, handY, 1.6*scale, 0, Math.PI*2);
     ctx.fill();
   }
 
   function drawStickManWithGear(e){
-    const x = e.x, groundY = e.y, scale = 1.0;
+    const x = e.x, groundY = e.y;
+    const scale = e.scale || 1.0;
     const attacking = e.attacking;
 
     const headR = 5*scale;
@@ -401,28 +460,30 @@
     const hx = x;
     const hy = groundY - (headR*2 + body + 8*scale);
 
-    // gear reference points
     const neckY = hy + headR;
     const torsoY = neckY + body;
     const armY = neckY + 5*scale;
 
-    // spear behind body for brute
-    if(e.type === "brute"){
-      drawSpear(x+6*scale, armY-2*scale, x+34*scale, armY-10*scale, 0.55);
-    }
+    // Arm end points (for spear hand)
+    const armOut = 10*scale;
+    const armDown = attacking ? 2*scale : 6*scale;
+    const rightHandX = hx + armOut;
+    const rightHandY = armY + armDown;
 
-    // head/body
+    // spear (draw behind/over arms later so it looks held)
+    // We'll draw after arms so it sits on top of the hand.
+    // head + body
     ctx.strokeStyle = "#1c1c1c";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = Math.max(2, 2*scale*0.75);
 
     // head
     ctx.beginPath();
     ctx.arc(hx, hy, headR, 0, Math.PI*2);
     ctx.stroke();
 
-    // armor for shield enemy (H)
+    // armor for H
     if(e.type === "shield"){
-      drawArmor(x, neckY+2*scale, 0.75);
+      drawArmor(x, neckY+2*scale, 0.75*scale);
     }
 
     // body line
@@ -432,18 +493,21 @@
     ctx.stroke();
 
     // arms
-    const armOut = 10*scale;
-    const armDown = attacking ? 2*scale : 6*scale;
     ctx.beginPath();
     ctx.moveTo(hx, armY);
     ctx.lineTo(hx - armOut, armY + armDown);
     ctx.moveTo(hx, armY);
-    ctx.lineTo(hx + armOut, armY + armDown);
+    ctx.lineTo(rightHandX, rightHandY);
     ctx.stroke();
 
-    // shield for M and H (soldier + shield)
+    // shield for M and H
     if(e.type === "soldier" || e.type === "shield"){
-      drawShield(x-16*scale, armY+5*scale, 0.95);
+      drawShield(x-16*scale, armY+5*scale, 0.95*scale);
+    }
+
+    // spear for B held in hand + B 2x taller (scale handles height)
+    if(e.type === "brute"){
+      drawSpearFromHand(rightHandX, rightHandY, 0.65*scale, attacking);
     }
 
     // legs
@@ -555,18 +619,16 @@
       (G.volleyHits[1]?1:0) +
       (G.volleyHits[2]?1:0);
 
-    // streak logic: consecutive PERFECT (3-hit) volleys
-    if(hitCount === 3){
-      G.threeHitStreak++;
-    } else {
-      G.threeHitStreak = 0;
-    }
+    // streak logic
+    if(hitCount === 3) G.threeHitStreak++;
+    else G.threeHitStreak = 0;
+
     G.dmgMult = (G.threeHitStreak >= 3) ? 1.5 : 1.0;
 
     UI.streak.textContent = String(G.threeHitStreak);
     UI.dmg.textContent = (G.dmgMult === 1.5) ? "x1.5" : "x1.0";
 
-    // Award crowns based on volley hits
+    // crowns
     if(hitCount > 0){
       G.crowns += hitCount;
       UI.crowns.textContent = String(G.crowns);
@@ -581,12 +643,7 @@
     // crown pops for enemies killed during this volley
     if(hitCount > 0){
       for(const d of G.volleyDeaths){
-        G.crownPops.push({
-          x: d.x,
-          y: d.y - 95,
-          count: hitCount,
-          life: 1.05
-        });
+        G.crownPops.push({ x: d.x, y: d.y - 95, count: hitCount, life: 1.05 });
       }
     }
 
@@ -605,15 +662,44 @@
     }
   }
 
+  // ===== Kills =====
+  function killEnemyInstant(e){
+    if(e.dead) return;
+    e.dead = true;
+    for(let i=0;i<10;i++){
+      G.particles.push({
+        x:e.x, y:e.y-18,
+        vx:(Math.random()*2-1)*180,
+        vy:(Math.random()*2-1)*180 - 90,
+        life:0.55 + Math.random()*0.25
+      });
+    }
+  }
+
+  function killEnemy(e){
+    e.dead = true;
+    if(G.volleyActive) G.volleyDeaths.push({ x: e.x, y: e.y });
+    for(let i=0;i<10;i++){
+      G.particles.push({
+        x:e.x, y:e.y-18,
+        vx:(Math.random()*2-1)*160,
+        vy:(Math.random()*2-1)*160 - 80,
+        life:0.6 + Math.random()*0.3
+      });
+    }
+  }
+
   // ===== Log Power =====
+  function setPowerButtonUI(btn, cdEl, ready){
+    btn.classList.toggle("ready", ready);
+    btn.classList.toggle("cooldown", !ready);
+    if(ready) cdEl.textContent = "";
+  }
+
   function setLogButtonUI(){
     const ready = (G.logCooldown <= 0 && !G.logActive && aliveArchers()>0);
-    UI.logBtn.classList.toggle("ready", ready);
-    UI.logBtn.classList.toggle("cooldown", !ready);
-
-    if(ready){
-      UI.logCd.textContent = "";
-    } else {
+    setPowerButtonUI(UI.logBtn, UI.logCd, ready);
+    if(!ready){
       const sec = Math.ceil(G.logCooldown);
       UI.logCd.textContent = (G.logCooldown > 0) ? `${sec}s` : "";
     }
@@ -631,9 +717,7 @@
   }
 
   function updateLog(dt){
-    if(G.logCooldown > 0){
-      G.logCooldown = Math.max(0, G.logCooldown - dt);
-    }
+    if(G.logCooldown > 0) G.logCooldown = Math.max(0, G.logCooldown - dt);
 
     if(G.logActive){
       G.logX -= G.logV * dt;
@@ -648,41 +732,61 @@
         }
       }
 
-      if(G.logX < -G.logW){
-        G.logActive = false;
-      }
+      if(G.logX < -G.logW) G.logActive = false;
     }
 
     setLogButtonUI();
   }
 
-  function killEnemyInstant(e){
-    if(e.dead) return;
-    e.dead = true;
-
-    for(let i=0;i<10;i++){
-      G.particles.push({
-        x:e.x, y:e.y-18,
-        vx:(Math.random()*2-1)*180,
-        vy:(Math.random()*2-1)*180 - 90,
-        life:0.55 + Math.random()*0.25
-      });
+  // ===== Oil Power (NEW) =====
+  function setOilButtonUI(){
+    const ready = (G.oilCooldown <= 0 && !G.oilActive && aliveArchers()>0);
+    setPowerButtonUI(UI.oilBtn, UI.oilCd, ready);
+    if(!ready){
+      const sec = Math.ceil(G.oilCooldown);
+      UI.oilCd.textContent = (G.oilCooldown > 0) ? `${sec}s` : "";
     }
   }
 
-  function killEnemy(e){
-    e.dead = true;
-    if(G.volleyActive){
-      G.volleyDeaths.push({ x: e.x, y: e.y });
+  function activateOil(){
+    if(G.oilCooldown > 0 || G.oilActive) return;
+    if(aliveArchers()<=0) return;
+
+    const t = rightmostAliveTower();
+    if(!t) return;
+
+    // puddle in front of the rightmost alive tower
+    G.oilX = t.x + t.w/2 + 26;
+    G.oilT = 5.0;          // lasts 5 seconds
+    G.oilActive = true;
+    G.oilCooldown = 45;    // 45s cooldown
+    setOilButtonUI();
+  }
+
+  function updateOil(dt){
+    if(G.oilCooldown > 0) G.oilCooldown = Math.max(0, G.oilCooldown - dt);
+
+    if(G.oilActive){
+      G.oilT -= dt;
+
+      // kill enemies within close range of the tower/puddle
+      const rr = G.oilR * G.oilR;
+      for(const e of G.enemies){
+        if(e.dead) continue;
+        const cx = e.x;
+        const cy = e.y - 18;
+        if(dist2(cx, cy, G.oilX, G.oilY) <= rr){
+          killEnemyInstant(e);
+        }
+      }
+
+      if(G.oilT <= 0){
+        G.oilActive = false;
+        G.oilT = 0;
+      }
     }
-    for(let i=0;i<10;i++){
-      G.particles.push({
-        x:e.x, y:e.y-18,
-        vx:(Math.random()*2-1)*160,
-        vy:(Math.random()*2-1)*160 - 80,
-        life:0.6 + Math.random()*0.3
-      });
-    }
+
+    setOilButtonUI();
   }
 
   // ===== Input =====
@@ -691,6 +795,7 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
+  // Aim/shoot
   canvas.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     const {x,y} = canvasXY(ev);
@@ -700,14 +805,152 @@
     fireVolley();
   }, {passive:false});
 
+  // Log button (stop it from shooting)
   UI.logBtn.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     ev.stopPropagation();
     activateLog();
   }, {passive:false});
 
+  // Oil button (stop it from shooting)
+  UI.oilBtn.addEventListener("pointerdown", (ev)=>{
+    ev.preventDefault();
+    ev.stopPropagation();
+    activateOil();
+  }, {passive:false});
+
   UI.restart.addEventListener("click", reset);
   addEventListener("keydown", (e)=>{ if(e.key.toLowerCase()==="r") reset(); });
+
+  // ===== Background (forest + hills) =====
+  function drawBackground(){
+    const W = innerWidth, H = innerHeight;
+
+    const g = ctx.createLinearGradient(0,0,0,G.groundY);
+    g.addColorStop(0, "#9fd2ff");
+    g.addColorStop(1, "#d9f1ff");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    ctx.fillStyle = "#7fb08d";
+    ctx.beginPath();
+    ctx.moveTo(0, G.groundY-170);
+    ctx.quadraticCurveTo(W*0.18, G.groundY-260, W*0.36, G.groundY-190);
+    ctx.quadraticCurveTo(W*0.52, G.groundY-120, W*0.70, G.groundY-210);
+    ctx.quadraticCurveTo(W*0.86, G.groundY-290, W, G.groundY-185);
+    ctx.lineTo(W, G.groundY);
+    ctx.lineTo(0, G.groundY);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#6a9b73";
+    ctx.beginPath();
+    ctx.moveTo(0, G.groundY-115);
+    ctx.quadraticCurveTo(W*0.22, G.groundY-195, W*0.44, G.groundY-135);
+    ctx.quadraticCurveTo(W*0.60, G.groundY-90,  W*0.76, G.groundY-150);
+    ctx.quadraticCurveTo(W*0.90, G.groundY-210, W, G.groundY-120);
+    ctx.lineTo(W, G.groundY);
+    ctx.lineTo(0, G.groundY);
+    ctx.closePath();
+    ctx.fill();
+
+    // trees
+    const treeY = G.groundY - 155;
+    ctx.fillStyle = "rgba(22,55,33,.55)";
+    for(let i=0;i<36;i++){
+      const x = (i/35)*W + Math.sin(i*1.7)*8;
+      const h = 34 + (i%7)*6;
+      ctx.beginPath();
+      ctx.moveTo(x, treeY);
+      ctx.lineTo(x-10, treeY+h);
+      ctx.lineTo(x+10, treeY+h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(x-2, treeY+h, 4, 10);
+    }
+
+    // ground
+    ctx.fillStyle = "#5f8f4a";
+    ctx.fillRect(0, G.groundY, W, H-G.groundY);
+
+    ctx.strokeStyle = "rgba(0,0,0,.18)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, G.groundY);
+    ctx.lineTo(W, G.groundY);
+    ctx.stroke();
+  }
+
+  // roundRect polyfill
+  if(!CanvasRenderingContext2D.prototype.roundRect){
+    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+      r = Math.min(r, w/2, h/2);
+      this.beginPath();
+      this.moveTo(x+r, y);
+      this.arcTo(x+w, y, x+w, y+h, r);
+      this.arcTo(x+w, y+h, x, y+h, r);
+      this.arcTo(x, y+h, x, y, r);
+      this.arcTo(x, y, x+w, y, r);
+      this.closePath();
+      return this;
+    };
+  }
+
+  function drawLog(){
+    if(!G.logActive) return;
+
+    const x = G.logX, y = G.logY;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(G.logRot);
+
+    ctx.fillStyle = "rgba(0,0,0,.18)";
+    ctx.beginPath();
+    ctx.ellipse(0, 16, G.logW*0.38, 10, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = "#8b5a2b";
+    const rw = G.logW, rh = G.logH;
+    ctx.beginPath();
+    ctx.roundRect(-rw/2, -rh/2, rw, rh, rh/2);
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(0,0,0,.16)";
+    ctx.fillRect(-rw*0.35, -2, rw*0.70, 3);
+    ctx.fillStyle = "rgba(255,255,255,.14)";
+    ctx.fillRect(-rw*0.28, 4, rw*0.56, 2);
+
+    ctx.restore();
+  }
+
+  function drawOilPuddle(){
+    if(!G.oilActive) return;
+
+    const p = clamp(G.oilT / 5.0, 0, 1); // fade out
+    const r = G.oilR;
+
+    ctx.save();
+    ctx.globalAlpha = 0.85 * p;
+
+    // shadowy puddle
+    const grad = ctx.createRadialGradient(G.oilX, G.oilY, 6, G.oilX, G.oilY, r);
+    grad.addColorStop(0, "rgba(20,20,24,.92)");
+    grad.addColorStop(1, "rgba(20,20,24,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(G.oilX, G.oilY+6, r*0.95, r*0.45, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // shiny highlight
+    ctx.globalAlpha = 0.25 * p;
+    ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.beginPath();
+    ctx.ellipse(G.oilX-18, G.oilY+2, r*0.25, r*0.10, -0.25, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  }
 
   // ===== Update =====
   function update(dt){
@@ -733,8 +976,9 @@
       }
     }
 
-    // log power update
+    // powers
     updateLog(dt);
+    updateOil(dt);
 
     // enemies move + stop at RIGHTMOST alive tower (C then B then A)
     const t = rightmostAliveTower();
@@ -787,7 +1031,7 @@
         if(e.dead) continue;
 
         const cx = e.x;
-        const cy = e.y - 28;
+        const cy = e.y - 28 * (e.scale || 1.0) * 0.9; // aim torso higher if tall
         const rr = (e.r+6)*(e.r+6);
 
         if(dist2(ar.x, ar.y, cx, cy) <= rr){
@@ -862,7 +1106,7 @@
       G.waveClearT = 0;
     }
 
-    // update high score on game over too (in case log kills don't award crowns)
+    // high score on game over
     if(aliveArchers()<=0 && G.crowns > G.highScore){
       G.highScore = G.crowns;
       UI.high.textContent = String(G.highScore);
@@ -870,122 +1114,10 @@
     }
   }
 
-  // ===== Draw Background: forest + hills (NEW) =====
-  function drawBackground(){
-    const W = innerWidth, H = innerHeight;
-
-    // sky gradient
-    const g = ctx.createLinearGradient(0,0,0,G.groundY);
-    g.addColorStop(0, "#9fd2ff");
-    g.addColorStop(1, "#d9f1ff");
-    ctx.fillStyle = g;
-    ctx.fillRect(0,0,W,H);
-
-    // far hills
-    ctx.fillStyle = "#7fb08d";
-    ctx.beginPath();
-    ctx.moveTo(0, G.groundY-170);
-    ctx.quadraticCurveTo(W*0.18, G.groundY-260, W*0.36, G.groundY-190);
-    ctx.quadraticCurveTo(W*0.52, G.groundY-120, W*0.70, G.groundY-210);
-    ctx.quadraticCurveTo(W*0.86, G.groundY-290, W, G.groundY-185);
-    ctx.lineTo(W, G.groundY);
-    ctx.lineTo(0, G.groundY);
-    ctx.closePath();
-    ctx.fill();
-
-    // nearer hills
-    ctx.fillStyle = "#6a9b73";
-    ctx.beginPath();
-    ctx.moveTo(0, G.groundY-115);
-    ctx.quadraticCurveTo(W*0.22, G.groundY-195, W*0.44, G.groundY-135);
-    ctx.quadraticCurveTo(W*0.60, G.groundY-90,  W*0.76, G.groundY-150);
-    ctx.quadraticCurveTo(W*0.90, G.groundY-210, W, G.groundY-120);
-    ctx.lineTo(W, G.groundY);
-    ctx.lineTo(0, G.groundY);
-    ctx.closePath();
-    ctx.fill();
-
-    // forest silhouette line (trees)
-    const treeY = G.groundY - 155;
-    ctx.fillStyle = "rgba(22,55,33,.55)";
-    for(let i=0;i<36;i++){
-      const x = (i/35)*W + Math.sin(i*1.7)*8;
-      const h = 34 + (i%7)*6;
-      ctx.beginPath();
-      ctx.moveTo(x, treeY);
-      ctx.lineTo(x-10, treeY+h);
-      ctx.lineTo(x+10, treeY+h);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillRect(x-2, treeY+h, 4, 10);
-    }
-
-    // ground
-    ctx.fillStyle = "#5f8f4a";
-    ctx.fillRect(0, G.groundY, W, H-G.groundY);
-
-    // ground line
-    ctx.strokeStyle = "rgba(0,0,0,.18)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, G.groundY);
-    ctx.lineTo(W, G.groundY);
-    ctx.stroke();
-  }
-
-  // ===== Draw Log =====
-  function drawLog(){
-    if(!G.logActive) return;
-
-    const x = G.logX;
-    const y = G.logY;
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(G.logRot);
-
-    // shadow
-    ctx.fillStyle = "rgba(0,0,0,.18)";
-    ctx.beginPath();
-    ctx.ellipse(0, 16, G.logW*0.38, 10, 0, 0, Math.PI*2);
-    ctx.fill();
-
-    // log body
-    ctx.fillStyle = "#8b5a2b";
-    const rw = G.logW, rh = G.logH;
-    ctx.beginPath();
-    ctx.roundRect(-rw/2, -rh/2, rw, rh, rh/2);
-    ctx.fill();
-
-    // grain stripes
-    ctx.fillStyle = "rgba(0,0,0,.16)";
-    ctx.fillRect(-rw*0.35, -2, rw*0.70, 3);
-    ctx.fillStyle = "rgba(255,255,255,.14)";
-    ctx.fillRect(-rw*0.28, 4, rw*0.56, 2);
-
-    ctx.restore();
-  }
-
-  // roundRect polyfill
-  if(!CanvasRenderingContext2D.prototype.roundRect){
-    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
-      r = Math.min(r, w/2, h/2);
-      this.beginPath();
-      this.moveTo(x+r, y);
-      this.arcTo(x+w, y, x+w, y+h, r);
-      this.arcTo(x+w, y+h, x, y+h, r);
-      this.arcTo(x, y+h, x, y, r);
-      this.arcTo(x, y, x+w, y, r);
-      this.closePath();
-      return this;
-    };
-  }
-
   // ===== Draw =====
   function draw(){
     const W = innerWidth, H = innerHeight;
 
-    // NEW background
     drawBackground();
 
     // towers
@@ -1000,7 +1132,6 @@
       ctx.fillStyle = "#4b4f58";
       ctx.fillRect(x-4, y-12, t.w+8, 14);
 
-      // hp bar
       ctx.fillStyle = "rgba(0,0,0,.35)";
       ctx.fillRect(x, y-26, t.w, 8);
       ctx.fillStyle = "#2aff6a";
@@ -1044,31 +1175,32 @@
     ctx.moveTo(G.aimX, G.aimY-10); ctx.lineTo(G.aimX, G.aimY+10);
     ctx.stroke();
 
-    // enemies with gear (NEW)
+    // enemies
     for(const e of G.enemies){
       if(e.dead) continue;
 
       drawStickManWithGear(e);
 
-      // hp
       const bw = 40, bh = 5;
       ctx.fillStyle = "rgba(0,0,0,.35)";
-      ctx.fillRect(e.x - bw/2, e.y - 68, bw, bh);
+      ctx.fillRect(e.x - bw/2, e.y - (68*(e.scale||1)), bw, bh);
       ctx.fillStyle = "#ff3c3c";
-      ctx.fillRect(e.x - bw/2, e.y - 68, bw*(e.hp/e.hpMax), bh);
+      ctx.fillRect(e.x - bw/2, e.y - (68*(e.scale||1)), bw*(e.hp/e.hpMax), bh);
 
-      // badge
       const badge = (e.type==="scout")?"S" : (e.type==="soldier")?"M" : (e.type==="shield")?"H" : "B";
       ctx.fillStyle = "rgba(0,0,0,.35)";
-      ctx.fillRect(e.x-8, e.y-88, 16, 16);
+      ctx.fillRect(e.x-8, e.y - (88*(e.scale||1)), 16, 16);
       ctx.fillStyle = "#fff";
       ctx.font = "800 11px system-ui,-apple-system,Segoe UI,Roboto";
       ctx.textAlign = "center";
-      ctx.fillText(badge, e.x, e.y-76);
+      ctx.fillText(badge, e.x, e.y - (76*(e.scale||1)));
       ctx.textAlign = "left";
     }
 
-    // log (above ground & below arrows)
+    // oil puddle (NEW)
+    drawOilPuddle();
+
+    // log
     drawLog();
 
     // arrows
@@ -1151,7 +1283,9 @@
     requestAnimationFrame(frame);
   }
 
+  // init
   setLogButtonUI();
+  setOilButtonUI();
   reset();
   requestAnimationFrame(frame);
 })();
