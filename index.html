@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
@@ -22,7 +22,8 @@
   .btn{
     margin-top:8px;display:inline-block;background:#2a63ff;color:#fff;
     padding:6px 10px;border-radius:9px;font-weight:800;font-size:13px;
-    user-select:none
+    user-select:none;
+    cursor:pointer;
   }
 
   /* === Power buttons === */
@@ -35,6 +36,7 @@
     user-select:none;-webkit-user-select:none;
     touch-action:manipulation;
     position:relative;
+    cursor:pointer;
   }
   .powerBtn.ready{ background:#ffffff; }
   .powerBtn.cooldown{ background:#9aa0a6; }
@@ -101,14 +103,12 @@
     </div>
 
     <div class="powerStack">
-      <!-- Log Power Button -->
-      <div id="logBtn" class="powerBtn ready" title="Log Power">
+      <div id="logBtn" class="powerBtn ready" title="Roll Log">
         <div class="logIcon"></div>
         <div id="logCd" class="coolText"></div>
       </div>
 
-      <!-- Oil Power Button (NEW) -->
-      <div id="oilBtn" class="powerBtn ready" title="Oil Dump">
+      <div id="oilBtn" class="powerBtn ready" title="Dump Oil">
         <div class="oilIcon"></div>
         <div id="oilCd" class="coolText"></div>
       </div>
@@ -116,8 +116,8 @@
   </div>
 
   <div class="hint">
-    Tap/click to aim. All living archers shoot <b>at once</b> with an arc.<br/>
-    Aim <b>above</b> enemies to hit ones farther back. Enemies stop at the rightmost alive tower first.
+    Tap/click anywhere to aim &amp; fire (all living archers shoot at once with an arc).<br/>
+    Aim <b>above</b> enemies to hit ones farther back. Enemies attack the <b>rightmost</b> alive tower first (C → B → A).
   </div>
   <div class="btn" id="restart">Restart</div>
 </div>
@@ -127,7 +127,7 @@
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d", { alpha:false });
 
-  const STORAGE_KEY = "castle_attack_highscore_v1";
+  const STORAGE_KEY = "oz_tower_attack_highscore_v1";
 
   const UI = {
     wave: document.getElementById("wave"),
@@ -170,6 +170,21 @@
   addEventListener("resize", resize, {passive:true});
   resize();
 
+  // roundRect polyfill (Safari)
+  if(!CanvasRenderingContext2D.prototype.roundRect){
+    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+      r = Math.min(r, w/2, h/2);
+      this.beginPath();
+      this.moveTo(x+r, y);
+      this.arcTo(x+w, y, x+w, y+h, r);
+      this.arcTo(x+w, y+h, x, y+h, r);
+      this.arcTo(x, y+h, x, y, r);
+      this.arcTo(x, y, x+w, y, r);
+      this.closePath();
+      return this;
+    };
+  }
+
   // ===== Enemy Types =====
   const ENEMY = {
     scout:  { name:"Scout",  hpMul:0.70, spdMul:1.50, dmgMul:0.90, r:14 },   // S
@@ -197,23 +212,19 @@
     arrows: [],
     particles: [],
 
-    // Crown pop sprites (pixel art)
     crownPops: [],
 
-    // Wave
     enemiesToSpawn: 0,
     spawnedThisWave: 0,
     nextSpawn: 0,
     waveClearT: 0,
 
-    // Volley tracking: crowns are based on volley hits (1/2/3)
     volleyActive: false,
     volleyId: 0,
     volleyHits: [false,false,false],
     volleyResolveT: 0,
     volleyDeaths: [],
 
-    // Damage multiplier for consecutive 3-hit volleys
     threeHitStreak: 0,
     dmgMult: 1.0,
 
@@ -227,13 +238,13 @@
     logV: 920,
     logRot: 0,
 
-    // Oil power (NEW)
+    // Oil power
     oilCooldown: 0,
     oilActive: false,
-    oilT: 0,      // remaining oil duration
+    oilT: 0,
     oilX: 0,
     oilY: 0,
-    oilR: 76,     // kill radius near tower
+    oilR: 76,
 
     towers: [
       { id:"A", hp:100, maxH:245, w:52, x:0, baseY:0, archers:[] },
@@ -250,21 +261,18 @@
     G.groundY = Math.floor(H*0.82);
     G.laneY = G.groundY;
 
-    // Thinner towers + longer lane
+    // thinner towers + longer lane
     const thinW = Math.max(30, Math.floor(W*0.024));
     for(const t of G.towers) t.w = thinW;
 
-    // push towers left to lengthen lane
+    // push towers left
     G.towers[0].x = Math.floor(W*0.07);
     G.towers[1].x = Math.floor(W*0.13);
     G.towers[2].x = Math.floor(W*0.19);
 
     for(const t of G.towers) t.baseY = G.groundY;
 
-    // log lane Y
     G.logY = G.groundY - 10;
-
-    // oil puddle y
     G.oilY = G.groundY - 2;
 
     if(!G.aimActive){
@@ -274,13 +282,11 @@
   }
 
   function towerHeight(t){ return Math.max(0, t.maxH*(t.hp/100)); }
-
   function archerPos(archer){
     const t = G.towers[archer.towerIndex];
     const h = towerHeight(t);
     return { x: t.x, y: (t.baseY - h) - 12 };
   }
-
   function aliveArchers(){ return G.archers.reduce((n,a)=>n+(a.alive?1:0),0); }
 
   function rightmostAliveTower(){
@@ -317,7 +323,6 @@
     const baseSpd = 36 + (w-1)*3.2;
     const speed = baseSpd * T.spdMul * (0.85 + Math.random()*0.25);
 
-    // (1) make brute 2x taller visually (scale used only for drawing + hit bubble slightly)
     const scale = (type==="brute") ? 2.0 : 1.0;
 
     return {
@@ -325,7 +330,7 @@
       type,
       x: W + 80 + Math.random()*160,
       y: G.laneY,
-      r: T.r * (type==="brute" ? 1.2 : 1.0), // slightly bigger hit bubble so spear guy feels chunky
+      r: T.r * (type==="brute" ? 1.2 : 1.0),
       hp, hpMax: hp,
       speed,
       dead:false,
@@ -359,24 +364,20 @@
     G.particles.length = 0;
     G.crownPops.length = 0;
 
-    // volley
     G.volleyActive = false;
     G.volleyId = 0;
     G.volleyHits = [false,false,false];
     G.volleyResolveT = 0;
     G.volleyDeaths = [];
 
-    // streak / dmg
     G.threeHitStreak = 0;
     G.dmgMult = 1.0;
 
-    // log power
     G.logCooldown = 0;
     G.logActive = false;
     G.logX = innerWidth + 200;
     G.logRot = 0;
 
-    // oil power
     G.oilCooldown = 0;
     G.oilActive = false;
     G.oilT = 0;
@@ -393,8 +394,11 @@
     UI.streak.textContent = "0";
     UI.high.textContent = String(G.highScore);
 
-    G.aimActive = = false;
+    G.aimActive = false;
     startWave(1);
+
+    setLogButtonUI();
+    setOilButtonUI();
   }
 
   // ===== Gear Drawing =====
@@ -419,10 +423,9 @@
     ctx.fillRect(x-6*scale, y+6*scale, 12*scale, 2*scale);
   }
 
-  // (1) Spear held in hand for brute
   function drawSpearFromHand(handX, handY, scale, attacking){
     const shaftLen = 34*scale;
-    const tilt = attacking ? -0.28 : -0.18; // radians-ish feel
+    const tilt = attacking ? -0.28 : -0.18;
     const tipX = handX + Math.cos(tilt)*shaftLen;
     const tipY = handY + Math.sin(tilt)*shaftLen;
 
@@ -433,7 +436,6 @@
     ctx.lineTo(tipX, tipY);
     ctx.stroke();
 
-    // tip
     ctx.fillStyle = "#c0c6d3";
     ctx.beginPath();
     ctx.moveTo(tipX, tipY);
@@ -442,7 +444,6 @@
     ctx.closePath();
     ctx.fill();
 
-    // butt
     ctx.fillStyle = "rgba(0,0,0,.20)";
     ctx.beginPath();
     ctx.arc(handX, handY, 1.6*scale, 0, Math.PI*2);
@@ -464,35 +465,27 @@
     const torsoY = neckY + body;
     const armY = neckY + 5*scale;
 
-    // Arm end points (for spear hand)
     const armOut = 10*scale;
     const armDown = attacking ? 2*scale : 6*scale;
     const rightHandX = hx + armOut;
     const rightHandY = armY + armDown;
 
-    // spear (draw behind/over arms later so it looks held)
-    // We'll draw after arms so it sits on top of the hand.
-    // head + body
     ctx.strokeStyle = "#1c1c1c";
     ctx.lineWidth = Math.max(2, 2*scale*0.75);
 
-    // head
     ctx.beginPath();
     ctx.arc(hx, hy, headR, 0, Math.PI*2);
     ctx.stroke();
 
-    // armor for H
     if(e.type === "shield"){
       drawArmor(x, neckY+2*scale, 0.75*scale);
     }
 
-    // body line
     ctx.beginPath();
     ctx.moveTo(hx, neckY);
     ctx.lineTo(hx, torsoY);
     ctx.stroke();
 
-    // arms
     ctx.beginPath();
     ctx.moveTo(hx, armY);
     ctx.lineTo(hx - armOut, armY + armDown);
@@ -500,17 +493,14 @@
     ctx.lineTo(rightHandX, rightHandY);
     ctx.stroke();
 
-    // shield for M and H
     if(e.type === "soldier" || e.type === "shield"){
       drawShield(x-16*scale, armY+5*scale, 0.95*scale);
     }
 
-    // spear for B held in hand + B 2x taller (scale handles height)
     if(e.type === "brute"){
       drawSpearFromHand(rightHandX, rightHandY, 0.65*scale, attacking);
     }
 
-    // legs
     const legOut = 8*scale;
     const legDown = 12*scale;
     ctx.beginPath();
@@ -521,7 +511,7 @@
     ctx.stroke();
   }
 
-  // ===== Pixel Crown Drawing =====
+  // ===== Pixel crowns =====
   function drawPixelCrown(x, y, s){
     const px = s;
     ctx.fillStyle = "#6b4a10";
@@ -619,7 +609,6 @@
       (G.volleyHits[1]?1:0) +
       (G.volleyHits[2]?1:0);
 
-    // streak logic
     if(hitCount === 3) G.threeHitStreak++;
     else G.threeHitStreak = 0;
 
@@ -628,7 +617,6 @@
     UI.streak.textContent = String(G.threeHitStreak);
     UI.dmg.textContent = (G.dmgMult === 1.5) ? "x1.5" : "x1.0";
 
-    // crowns
     if(hitCount > 0){
       G.crowns += hitCount;
       UI.crowns.textContent = String(G.crowns);
@@ -640,7 +628,6 @@
       }
     }
 
-    // crown pops for enemies killed during this volley
     if(hitCount > 0){
       for(const d of G.volleyDeaths){
         G.crownPops.push({ x: d.x, y: d.y - 95, count: hitCount, life: 1.05 });
@@ -652,7 +639,7 @@
     G.volleyDeaths = [];
   }
 
-  // ===== Tower Damage =====
+  // ===== Tower damage =====
   function damageRightmostTower(amount){
     const t = rightmostAliveTower();
     if(!t) return;
@@ -689,7 +676,7 @@
     }
   }
 
-  // ===== Log Power =====
+  // ===== Powers UI =====
   function setPowerButtonUI(btn, cdEl, ready){
     btn.classList.toggle("ready", ready);
     btn.classList.toggle("cooldown", !ready);
@@ -705,6 +692,16 @@
     }
   }
 
+  function setOilButtonUI(){
+    const ready = (G.oilCooldown <= 0 && !G.oilActive && aliveArchers()>0);
+    setPowerButtonUI(UI.oilBtn, UI.oilCd, ready);
+    if(!ready){
+      const sec = Math.ceil(G.oilCooldown);
+      UI.oilCd.textContent = (G.oilCooldown > 0) ? `${sec}s` : "";
+    }
+  }
+
+  // ===== Log power =====
   function activateLog(){
     if(G.logCooldown > 0 || G.logActive) return;
     if(aliveArchers()<=0) return;
@@ -731,23 +728,13 @@
           killEnemyInstant(e);
         }
       }
-
       if(G.logX < -G.logW) G.logActive = false;
     }
 
     setLogButtonUI();
   }
 
-  // ===== Oil Power (NEW) =====
-  function setOilButtonUI(){
-    const ready = (G.oilCooldown <= 0 && !G.oilActive && aliveArchers()>0);
-    setPowerButtonUI(UI.oilBtn, UI.oilCd, ready);
-    if(!ready){
-      const sec = Math.ceil(G.oilCooldown);
-      UI.oilCd.textContent = (G.oilCooldown > 0) ? `${sec}s` : "";
-    }
-  }
-
+  // ===== Oil power =====
   function activateOil(){
     if(G.oilCooldown > 0 || G.oilActive) return;
     if(aliveArchers()<=0) return;
@@ -755,11 +742,10 @@
     const t = rightmostAliveTower();
     if(!t) return;
 
-    // puddle in front of the rightmost alive tower
     G.oilX = t.x + t.w/2 + 26;
-    G.oilT = 5.0;          // lasts 5 seconds
+    G.oilT = 5.0;
     G.oilActive = true;
-    G.oilCooldown = 45;    // 45s cooldown
+    G.oilCooldown = 45;
     setOilButtonUI();
   }
 
@@ -768,8 +754,6 @@
 
     if(G.oilActive){
       G.oilT -= dt;
-
-      // kill enemies within close range of the tower/puddle
       const rr = G.oilR * G.oilR;
       for(const e of G.enemies){
         if(e.dead) continue;
@@ -779,7 +763,6 @@
           killEnemyInstant(e);
         }
       }
-
       if(G.oilT <= 0){
         G.oilActive = false;
         G.oilT = 0;
@@ -795,7 +778,6 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
-  // Aim/shoot
   canvas.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     const {x,y} = canvasXY(ev);
@@ -805,14 +787,12 @@
     fireVolley();
   }, {passive:false});
 
-  // Log button (stop it from shooting)
   UI.logBtn.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     ev.stopPropagation();
     activateLog();
   }, {passive:false});
 
-  // Oil button (stop it from shooting)
   UI.oilBtn.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     ev.stopPropagation();
@@ -822,7 +802,7 @@
   UI.restart.addEventListener("click", reset);
   addEventListener("keydown", (e)=>{ if(e.key.toLowerCase()==="r") reset(); });
 
-  // ===== Background (forest + hills) =====
+  // ===== Background =====
   function drawBackground(){
     const W = innerWidth, H = innerHeight;
 
@@ -854,7 +834,6 @@
     ctx.closePath();
     ctx.fill();
 
-    // trees
     const treeY = G.groundY - 155;
     ctx.fillStyle = "rgba(22,55,33,.55)";
     for(let i=0;i<36;i++){
@@ -869,7 +848,6 @@
       ctx.fillRect(x-2, treeY+h, 4, 10);
     }
 
-    // ground
     ctx.fillStyle = "#5f8f4a";
     ctx.fillRect(0, G.groundY, W, H-G.groundY);
 
@@ -879,21 +857,6 @@
     ctx.moveTo(0, G.groundY);
     ctx.lineTo(W, G.groundY);
     ctx.stroke();
-  }
-
-  // roundRect polyfill
-  if(!CanvasRenderingContext2D.prototype.roundRect){
-    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
-      r = Math.min(r, w/2, h/2);
-      this.beginPath();
-      this.moveTo(x+r, y);
-      this.arcTo(x+w, y, x+w, y+h, r);
-      this.arcTo(x+w, y+h, x, y+h, r);
-      this.arcTo(x, y+h, x, y, r);
-      this.arcTo(x, y, x+w, y, r);
-      this.closePath();
-      return this;
-    };
   }
 
   function drawLog(){
@@ -927,13 +890,12 @@
   function drawOilPuddle(){
     if(!G.oilActive) return;
 
-    const p = clamp(G.oilT / 5.0, 0, 1); // fade out
+    const p = clamp(G.oilT / 5.0, 0, 1);
     const r = G.oilR;
 
     ctx.save();
     ctx.globalAlpha = 0.85 * p;
 
-    // shadowy puddle
     const grad = ctx.createRadialGradient(G.oilX, G.oilY, 6, G.oilX, G.oilY, r);
     grad.addColorStop(0, "rgba(20,20,24,.92)");
     grad.addColorStop(1, "rgba(20,20,24,0)");
@@ -942,7 +904,6 @@
     ctx.ellipse(G.oilX, G.oilY+6, r*0.95, r*0.45, 0, 0, Math.PI*2);
     ctx.fill();
 
-    // shiny highlight
     ctx.globalAlpha = 0.25 * p;
     ctx.fillStyle = "rgba(255,255,255,.9)";
     ctx.beginPath();
@@ -952,20 +913,17 @@
     ctx.restore();
   }
 
-  // ===== Update =====
+  // ===== Update / Draw =====
   function update(dt){
     layout();
 
-    // UI
     UI.alive.textContent = String(aliveArchers());
     UI.ta.textContent = String(Math.round(G.towers[0].hp));
     UI.tb.textContent = String(Math.round(G.towers[1].hp));
     UI.tc.textContent = String(Math.round(G.towers[2].hp));
 
-    // cooldowns
     for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
 
-    // spawn enemies
     if(aliveArchers()>0){
       G.nextSpawn -= dt;
       if(G.spawnedThisWave < G.enemiesToSpawn && G.nextSpawn <= 0){
@@ -976,11 +934,9 @@
       }
     }
 
-    // powers
     updateLog(dt);
     updateOil(dt);
 
-    // enemies move + stop at RIGHTMOST alive tower (C then B then A)
     const t = rightmostAliveTower();
     const stopX = t ? (t.x + t.w/2 + 18) : -9999;
 
@@ -1003,7 +959,6 @@
       }
     }
 
-    // arrows physics + hits
     for(const ar of G.arrows){
       if(!ar.alive) continue;
 
@@ -1014,24 +969,20 @@
       ar.trail.push([ar.x, ar.y]);
       if(ar.trail.length > 10) ar.trail.shift();
 
-      // hit ground -> die
       if(ar.y >= G.groundY - 2){
         ar.alive = false;
         continue;
       }
-
-      // offscreen
       if(ar.x < -200 || ar.x > innerWidth+260 || ar.y < -240 || ar.y > innerHeight+240){
         ar.alive = false;
         continue;
       }
 
-      // collision with enemies
       for(const e of G.enemies){
         if(e.dead) continue;
 
         const cx = e.x;
-        const cy = e.y - 28 * (e.scale || 1.0) * 0.9; // aim torso higher if tall
+        const cy = e.y - 28 * (e.scale || 1.0) * 0.9;
         const rr = (e.r+6)*(e.r+6);
 
         if(dist2(ar.x, ar.y, cx, cy) <= rr){
@@ -1074,7 +1025,6 @@
     }
     G.arrows = G.arrows.filter(a=>a.alive);
 
-    // particles
     for(const p of G.particles){
       p.life -= dt;
       p.x += p.vx * dt;
@@ -1083,20 +1033,17 @@
     }
     G.particles = G.particles.filter(p=>p.life>0);
 
-    // crown pops
     for(const c of G.crownPops){
       c.life -= dt;
       c.y -= 32 * dt;
     }
     G.crownPops = G.crownPops.filter(c=>c.life>0);
 
-    // resolve volley
     if(G.volleyActive){
       G.volleyResolveT += dt;
       resolveVolleyIfReady();
     }
 
-    // wave clear -> next
     const anyAlive = G.enemies.some(e=>!e.dead);
     const allSpawned = (G.spawnedThisWave >= G.enemiesToSpawn);
     if(allSpawned && !anyAlive && aliveArchers()>0){
@@ -1106,7 +1053,6 @@
       G.waveClearT = 0;
     }
 
-    // high score on game over
     if(aliveArchers()<=0 && G.crowns > G.highScore){
       G.highScore = G.crowns;
       UI.high.textContent = String(G.highScore);
@@ -1114,7 +1060,6 @@
     }
   }
 
-  // ===== Draw =====
   function draw(){
     const W = innerWidth, H = innerHeight;
 
@@ -1197,10 +1142,7 @@
       ctx.textAlign = "left";
     }
 
-    // oil puddle (NEW)
     drawOilPuddle();
-
-    // log
     drawLog();
 
     // arrows
@@ -1243,7 +1185,6 @@
       ctx.globalAlpha = 1;
     }
 
-    // wave cleared
     if(G.waveClearT>0.05 && aliveArchers()>0){
       ctx.fillStyle = "rgba(0,0,0,.22)";
       ctx.fillRect(W/2-120, 14, 240, 36);
@@ -1254,7 +1195,6 @@
       ctx.textAlign = "left";
     }
 
-    // game over
     if(aliveArchers()<=0){
       ctx.fillStyle = "rgba(0,0,0,.48)";
       ctx.fillRect(0,0,W,H);
@@ -1270,7 +1210,7 @@
     }
   }
 
-  // ===== Main Loop =====
+  // ===== Main loop =====
   let last = performance.now();
   function frame(now){
     const dt = Math.min(0.033, (now-last)/1000);
@@ -1284,8 +1224,6 @@
   }
 
   // init
-  setLogButtonUI();
-  setOilButtonUI();
   reset();
   requestAnimationFrame(frame);
 })();
