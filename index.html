@@ -8,7 +8,7 @@
   html,body{margin:0;height:100%;background:#0f1116;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto}
   canvas{display:block;width:100vw;height:100vh;touch-action:manipulation;-webkit-user-select:none;user-select:none}
 
-  /* Smaller HUD (no long hint text) */
+  /* Smaller HUD */
   .hud{
     position:fixed;left:10px;top:10px;z-index:5;color:#e8ecff;
     background:rgba(0,0,0,.32);
@@ -28,7 +28,7 @@
     user-select:none;cursor:pointer;
   }
 
-  /* === Power buttons === */
+  /* Power buttons */
   .powerStack{display:flex;flex-direction:column;gap:10px;align-items:center}
   .powerBtn{
     width:42px;height:42px;border-radius:50%;
@@ -90,6 +90,20 @@
     background:#1d1f23;
   }
 
+  /* Rock icon */
+  .rockIcon{
+    width:22px;height:18px;border-radius:10px 12px 9px 13px;
+    background:#6b7280;
+    box-shadow: inset 0 2px 0 rgba(255,255,255,.18), inset 0 -3px 0 rgba(0,0,0,.18);
+    transform: rotate(-10deg);
+    position:relative;
+  }
+  .rockIcon:after{
+    content:"";
+    position:absolute;left:5px;top:4px;width:6px;height:4px;border-radius:6px;
+    background:rgba(255,255,255,.20);
+  }
+
   /* Start overlay */
   .overlay{
     position:fixed;inset:0;z-index:20;
@@ -108,22 +122,14 @@
     backdrop-filter: blur(8px);
     box-shadow:0 10px 40px rgba(0,0,0,.45);
   }
-  .title{
-    font-weight:1000;
-    letter-spacing:.5px;
-    font-size:22px;
-    margin:0 0 8px;
-  }
+  .title{font-weight:1000;letter-spacing:.5px;font-size:22px;margin:0 0 8px;}
   .sub{opacity:.9;margin:0 0 14px;font-size:13px;line-height:1.35}
   .bullets{margin:0 0 14px;padding-left:18px;font-size:13px;opacity:.95}
   .bullets li{margin:6px 0}
   .startRow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:flex-start}
   .startBtn{
-    background:#ffffff;color:#111827;
-    border:0;border-radius:12px;
-    padding:10px 14px;
-    font-weight:1000;
-    cursor:pointer;
+    background:#ffffff;color:#111827;border:0;border-radius:12px;
+    padding:10px 14px;font-weight:1000;cursor:pointer;
   }
   .muted{font-size:12px;opacity:.8}
 </style>
@@ -152,6 +158,11 @@
         <div class="oilIcon"></div>
         <div id="oilCd" class="coolText"></div>
       </div>
+
+      <div id="rockBtn" class="powerBtn ready" title="Throw Rocks">
+        <div class="rockIcon"></div>
+        <div id="rockCd" class="coolText"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -166,7 +177,8 @@
       <li><b>Tap/click</b> anywhere to fire a volley (all living archers shoot).</li>
       <li>Arrows <b>arc</b> — aim higher to hit enemies farther back.</li>
       <li>Earn <b>1/2/3 crowns</b> depending on how many arrows hit during that volley.</li>
-      <li><b>Log</b> (60s) rolls across and kills enemies. <b>Oil</b> (45s) burns enemies near the rightmost tower.</li>
+      <li><b>Log</b> (60s) kills enemies on the path. <b>Oil</b> (45s) burns enemies near the rightmost tower.</li>
+      <li><b>Rocks</b> (30s) throws 3 rocks that land in the back 1/4 and kill on impact.</li>
       <li>Get <b>1.5× damage</b> after <b>3</b> consecutive <b>3-hit volleys</b>.</li>
     </ul>
     <div class="startRow">
@@ -198,6 +210,8 @@
     logCd: document.getElementById("logCd"),
     oilBtn: document.getElementById("oilBtn"),
     oilCd: document.getElementById("oilCd"),
+    rockBtn: document.getElementById("rockBtn"),
+    rockCd: document.getElementById("rockCd"),
     overlay: document.getElementById("overlay"),
     startBtn: document.getElementById("startBtn"),
   };
@@ -304,10 +318,17 @@
     beep({type:"sawtooth", freq:220, endFreq:70, dur:0.18, gain:0.14});
     beep({noise:true, dur:0.10, gain:0.08});
   }
-  // NEW: tower thud
   function sfxTowerThud(){
     beep({type:"sine", freq:110, endFreq:60, dur:0.10, gain:0.18});
     beep({noise:true, dur:0.06, gain:0.08});
+  }
+  function sfxRockThrow(){
+    beep({noise:true, dur:0.05, gain:0.10});
+    beep({type:"triangle", freq:260, endFreq:180, dur:0.10, gain:0.10});
+  }
+  function sfxRockImpact(){
+    beep({type:"sine", freq:140, endFreq:70, dur:0.11, gain:0.16});
+    beep({noise:true, dur:0.07, gain:0.10});
   }
 
   // ===== Enemy Types =====
@@ -336,6 +357,8 @@
 
     enemies: [],
     arrows: [],
+    stuckArrows: [], // missed arrows stay ~5s
+    rocks: [],       // rock projectiles
     particles: [],
     crownPops: [],
 
@@ -353,7 +376,7 @@
     threeHitStreak: 0,
     dmgMult: 1.0,
 
-    // Screen shake (NEW)
+    // Shake
     shakeT: 0,
     shakeMag: 0,
 
@@ -374,6 +397,9 @@
     oilX: 0,
     oilY: 0,
     oilR: 76,
+
+    // Rocks power
+    rockCooldown: 0,
 
     towers: [
       { id:"A", hp:100, maxH:245, w:52, x:0, baseY:0, archers:[] },
@@ -425,7 +451,6 @@
     return best;
   }
 
-  // NEW: shake helper
   function shake(amount=2.5){
     G.shakeT = Math.max(G.shakeT, 0.12);
     G.shakeMag = Math.max(G.shakeMag, amount);
@@ -474,13 +499,14 @@
 
       stepT: rand(0, 6.28),
 
-      // NEW: hit-stun timer
+      // hit-stun
       stunT: 0,
 
+      // death fall-flat (not full spin)
       deathT: 0,
-      deathDur: 0.75,
-      rot: 0,
-      rotV: rand(-8, -12) * (Math.random()<0.5 ? 1 : -1),
+      deathDur: 0.80,
+      fallA: 0,
+      fallDir: (Math.random()<0.5 ? -1 : 1),
       fade: 1,
 
       scale
@@ -500,6 +526,40 @@
     G.waveClearT = 0;
   }
 
+  // ===== Buttons UI =====
+  function setPowerButtonUI(btn, cdEl, ready){
+    btn.classList.toggle("ready", ready);
+    btn.classList.toggle("cooldown", !ready);
+    if(ready) cdEl.textContent = "";
+  }
+
+  function setLogButtonUI(){
+    const ready = (G.logCooldown <= 0 && !G.logActive && aliveArchers()>0 && G.started);
+    setPowerButtonUI(UI.logBtn, UI.logCd, ready);
+    if(!ready){
+      const sec = Math.ceil(G.logCooldown);
+      UI.logCd.textContent = (G.logCooldown > 0) ? `${sec}s` : "";
+    }
+  }
+
+  function setOilButtonUI(){
+    const ready = (G.oilCooldown <= 0 && !G.oilActive && aliveArchers()>0 && G.started);
+    setPowerButtonUI(UI.oilBtn, UI.oilCd, ready);
+    if(!ready){
+      const sec = Math.ceil(G.oilCooldown);
+      UI.oilCd.textContent = (G.oilCooldown > 0) ? `${sec}s` : "";
+    }
+  }
+
+  function setRockButtonUI(){
+    const ready = (G.rockCooldown <= 0 && aliveArchers()>0 && G.started);
+    setPowerButtonUI(UI.rockBtn, UI.rockCd, ready);
+    if(!ready){
+      const sec = Math.ceil(G.rockCooldown);
+      UI.rockCd.textContent = (G.rockCooldown > 0) ? `${sec}s` : "";
+    }
+  }
+
   function reset(){
     G.t = 0;
     G.wave = 1;
@@ -507,6 +567,8 @@
 
     G.enemies.length = 0;
     G.arrows.length = 0;
+    G.stuckArrows.length = 0;
+    G.rocks.length = 0;
     G.particles.length = 0;
     G.crownPops.length = 0;
 
@@ -519,7 +581,6 @@
     G.threeHitStreak = 0;
     G.dmgMult = 1.0;
 
-    // NEW: clear shake
     G.shakeT = 0;
     G.shakeMag = 0;
 
@@ -532,6 +593,8 @@
     G.oilActive = false;
     G.oilT = 0;
 
+    G.rockCooldown = 0;
+
     for(const t of G.towers) t.hp = 100;
 
     G.archers = [ makeArcher(0), makeArcher(1), makeArcher(2) ];
@@ -539,6 +602,7 @@
     G.towers[1].archers = [G.archers[1]];
     G.towers[2].archers = [G.archers[2]];
 
+    UI.wave.textContent = "1";
     UI.crowns.textContent = "0";
     UI.dmg.textContent = "x1.0";
     UI.streak.textContent = "0";
@@ -549,9 +613,72 @@
 
     setLogButtonUI();
     setOilButtonUI();
+    setRockButtonUI();
   }
 
-  // ===== Gear Drawing =====
+  // ===== Gear (more realistic armor overlay) =====
+  function drawHelmet(x,y,scale){
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.fillStyle = "#7b8390";
+    ctx.beginPath();
+    ctx.arc(0,0,7*scale,Math.PI,Math.PI*2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.18)";
+    ctx.beginPath();
+    ctx.arc(-2*scale,-1*scale,3*scale,0,Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.25)";
+    ctx.lineWidth = 1.5*scale;
+    ctx.beginPath();
+    ctx.arc(0,0,7*scale,Math.PI,Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawBreastplate(x,y,scale){
+    ctx.save();
+    ctx.translate(x,y);
+
+    ctx.fillStyle = "rgba(0,0,0,.18)";
+    ctx.beginPath();
+    ctx.roundRect(-9*scale, -1*scale, 18*scale, 18*scale, 5*scale);
+    ctx.fill();
+
+    const grad = ctx.createLinearGradient(0,-8*scale,0,16*scale);
+    grad.addColorStop(0,"#8a93a2");
+    grad.addColorStop(1,"#646c7a");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(-9*scale, -2*scale, 18*scale, 18*scale, 6*scale);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(255,255,255,.14)";
+    ctx.lineWidth = 2*scale;
+    ctx.beginPath();
+    ctx.moveTo(0, -1*scale);
+    ctx.lineTo(0, 15*scale);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(0,0,0,.28)";
+    ctx.lineWidth = 2*scale;
+    ctx.beginPath();
+    ctx.roundRect(-9*scale, -2*scale, 18*scale, 18*scale, 6*scale);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#3b2a16";
+    ctx.lineWidth = 2*scale;
+    ctx.beginPath();
+    ctx.moveTo(-10*scale, 2*scale);
+    ctx.lineTo(-2*scale, 7*scale);
+    ctx.moveTo(10*scale, 2*scale);
+    ctx.lineTo(2*scale, 7*scale);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
   function drawShield(x,y,scale){
     const r = 7*scale;
     ctx.fillStyle = "#6b4a10";
@@ -562,15 +689,6 @@
     ctx.fillRect(x-1*scale, y-r*0.6, 2*scale, r*1.2);
     ctx.fillStyle = "#cfd6e6";
     ctx.beginPath(); ctx.arc(x,y,1.5*scale,0,Math.PI*2); ctx.fill();
-  }
-
-  function drawArmor(x,y,scale){
-    ctx.fillStyle = "#6f7682";
-    ctx.fillRect(x-7*scale, y-2*scale, 14*scale, 14*scale);
-    ctx.fillStyle = "rgba(255,255,255,.18)";
-    ctx.fillRect(x-5*scale, y, 10*scale, 2*scale);
-    ctx.fillStyle = "rgba(0,0,0,.18)";
-    ctx.fillRect(x-6*scale, y+6*scale, 12*scale, 2*scale);
   }
 
   function drawSpearFromHand(handX, handY, scale, attacking){
@@ -600,9 +718,9 @@
     ctx.fill();
   }
 
+  // ===== Enemy drawing with fall-flat death =====
   function drawStickManWithGear(e){
     const scale = e.scale || 1.0;
-
     const baseX = e.x;
     const baseY = e.y;
 
@@ -610,8 +728,10 @@
     const armSwing = Math.sin(e.stepT) * (e.state==="alive" ? 1 : 0.2);
 
     const dying = (e.state==="dying");
-    const rot = dying ? e.rot : 0;
     const alpha = dying ? e.fade : 1;
+
+    // Only fall to ~90deg (flat), not a full spin
+    const rot = dying ? (e.fallA * (Math.PI/2) * e.fallDir) : 0;
 
     ctx.save();
     ctx.translate(baseX, baseY);
@@ -630,7 +750,7 @@
     const armOut = 10*scale;
     const armDown = (e.attack ? 2*scale : 6*scale);
 
-    // If stunned, reduce bob/swing for a "hit-stun" feel
+    // hit-stun reduces bob/swing
     const stunned = (e.stunT > 0 && e.state==="alive");
     const bob = (!stunned && e.state==="alive" && !e.attack) ? (step * 1.6*scale) : 0;
     const swingScale = stunned ? 0.15 : 1.0;
@@ -640,19 +760,22 @@
     ctx.strokeStyle = "#151515";
     ctx.lineWidth = Math.max(2, 2*scale*0.75);
 
+    // head
     ctx.beginPath();
     ctx.arc(0, headY, headR, 0, Math.PI*2);
     ctx.stroke();
 
-    if(e.type === "shield"){
-      drawArmor(0, neckY+2*scale, 0.75*scale);
+    if(e.type === "soldier" || e.type === "shield" || e.type === "brute"){
+      drawHelmet(0, headY, 0.9*scale);
     }
 
+    // torso
     ctx.beginPath();
     ctx.moveTo(0, neckY);
     ctx.lineTo(0, torsoBottomY);
     ctx.stroke();
 
+    // arms
     const leftHandX  = -armOut;
     const leftHandY  = armY + armDown + armSwing*1.2*scale*swingScale;
     const rightHandX =  armOut;
@@ -665,18 +788,24 @@
     ctx.lineTo(rightHandX, rightHandY);
     ctx.stroke();
 
+    // armor overlay
+    if(e.type === "soldier" || e.type === "shield" || e.type === "brute"){
+      drawBreastplate(0, neckY+2*scale, 0.75*scale);
+    }
+
+    // gear
     if(e.type === "soldier" || e.type === "shield"){
       drawShield(-16*scale, armY+5*scale, 0.95*scale);
     }
-
     if(e.type === "brute"){
       drawSpearFromHand(rightHandX, rightHandY, 0.65*scale, e.attack);
     }
 
+    // legs
     const legOut = 8*scale;
     const legDown = 12*scale;
-
     const legSwing = (e.state==="alive" && !e.attack && !stunned) ? (step * 4*scale) : (step * 1.0*scale);
+
     ctx.beginPath();
     ctx.moveTo(0, torsoBottomY);
     ctx.lineTo(-legOut, torsoBottomY + legDown + legSwing);
@@ -723,6 +852,77 @@
     }
   }
 
+  // ===== Archer (person with bow) =====
+  function drawArcherOnTower(x, y, alive){
+    ctx.save();
+    ctx.translate(x, y);
+
+    if(!alive){
+      ctx.strokeStyle = "rgba(190,40,40,.9)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-10,-10); ctx.lineTo(10,10);
+      ctx.moveTo(10,-10); ctx.lineTo(-10,10);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    // head
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, -16, 5, 0, Math.PI*2);
+    ctx.stroke();
+
+    // torso
+    ctx.beginPath();
+    ctx.moveTo(0, -11);
+    ctx.lineTo(0, 2);
+    ctx.stroke();
+
+    // legs
+    ctx.beginPath();
+    ctx.moveTo(0, 2);
+    ctx.lineTo(-6, 12);
+    ctx.moveTo(0, 2);
+    ctx.lineTo(6, 12);
+    ctx.stroke();
+
+    // arms
+    ctx.beginPath();
+    ctx.moveTo(0, -6);
+    ctx.lineTo(-10, 2);
+    ctx.moveTo(0, -6);
+    ctx.lineTo(10, 0);
+    ctx.stroke();
+
+    // bow
+    ctx.strokeStyle = "#b07a2a";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(-12, 2, 10, -Math.PI/2, Math.PI/2);
+    ctx.stroke();
+
+    // string
+    ctx.strokeStyle = "rgba(0,0,0,.35)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-12, -8);
+    ctx.lineTo(-12, 12);
+    ctx.stroke();
+
+    // tiny quiver accent
+    ctx.strokeStyle = "#c79a3a";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(4, -5);
+    ctx.lineTo(10, 6);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
   // ===== Shooting =====
   function spawnArrow(archerIndex, fromX, fromY, aimX, aimY){
     const minAimY = G.groundY - 6;
@@ -761,7 +961,6 @@
     if(aliveArchers()<=0) return;
 
     beginVolley();
-
     let shotAny = false;
 
     for(let i=0;i<G.archers.length;i++){
@@ -821,7 +1020,7 @@
     G.volleyDeaths = [];
   }
 
-  // ===== Tower damage (NEW: thud + shake) =====
+  // ===== Tower damage =====
   function damageRightmostTower(amount){
     const t = rightmostAliveTower();
     if(!t) return;
@@ -839,7 +1038,7 @@
     }
   }
 
-  // ===== Death animations & particles =====
+  // ===== Death / particles =====
   function bloodBurst(x,y,scale=1){
     const n = 12;
     for(let i=0;i<n;i++){
@@ -862,9 +1061,8 @@
     e.attack = false;
     e.deathT = 0;
     e.fade = 1;
-    e.rot = 0;
-    e.rotV = rand(-8, -12) * (Math.random()<0.5 ? 1 : -1);
-    e.deathDur = instant ? 0.55 : 0.75;
+    e.deathDur = instant ? 0.55 : 0.80;
+    e.fallA = 0;
 
     if(G.volleyActive) G.volleyDeaths.push({ x: e.x, y: e.y });
 
@@ -878,45 +1076,17 @@
     startEnemyDeath(e, true);
   }
 
-  // NEW: hit-stun on arrow impact happens here
   function damageEnemy(e, amount){
     if(e.state!=="alive") return;
-
-    e.stunT = Math.max(e.stunT, 0.10); // brief hit-stun
+    e.stunT = Math.max(e.stunT, 0.10); // hit-stun
     e.hp -= amount;
     sfxHit();
-
     if(e.hp <= 0){
       startEnemyDeath(e, false);
     }
   }
 
-  // ===== Powers UI =====
-  function setPowerButtonUI(btn, cdEl, ready){
-    btn.classList.toggle("ready", ready);
-    btn.classList.toggle("cooldown", !ready);
-    if(ready) cdEl.textContent = "";
-  }
-
-  function setLogButtonUI(){
-    const ready = (G.logCooldown <= 0 && !G.logActive && aliveArchers()>0 && G.started);
-    setPowerButtonUI(UI.logBtn, UI.logCd, ready);
-    if(!ready){
-      const sec = Math.ceil(G.logCooldown);
-      UI.logCd.textContent = (G.logCooldown > 0) ? `${sec}s` : "";
-    }
-  }
-
-  function setOilButtonUI(){
-    const ready = (G.oilCooldown <= 0 && !G.oilActive && aliveArchers()>0 && G.started);
-    setPowerButtonUI(UI.oilBtn, UI.oilCd, ready);
-    if(!ready){
-      const sec = Math.ceil(G.oilCooldown);
-      UI.oilCd.textContent = (G.oilCooldown > 0) ? `${sec}s` : "";
-    }
-  }
-
-  // ===== Log power =====
+  // ===== Powers =====
   function activateLog(){
     if(!G.started) return;
     if(G.logCooldown > 0 || G.logActive) return;
@@ -950,7 +1120,6 @@
     setLogButtonUI();
   }
 
-  // ===== Oil power =====
   function activateOil(){
     if(!G.started) return;
     if(G.oilCooldown > 0 || G.oilActive) return;
@@ -989,54 +1158,78 @@
     setOilButtonUI();
   }
 
-  // ===== Input =====
-  function canvasXY(ev){
-    const r = canvas.getBoundingClientRect();
-    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
-  }
-
-  canvas.addEventListener("pointerdown", (ev)=>{
+  // NEW: Rocks ability (30s cooldown).
+  // Throws 3 rocks from the rightmost alive tower; they arc and land in the back 1/4 of the arena (right side),
+  // killing enemies near each impact.
+  function activateRocks(){
     if(!G.started) return;
-    ev.preventDefault();
-    const {x,y} = canvasXY(ev);
-    G.aimX = x;
-    G.aimY = y;
-    G.aimActive = true;
-    fireVolley();
-  }, {passive:false});
+    if(G.rockCooldown > 0) return;
+    if(aliveArchers()<=0) return;
 
-  UI.logBtn.addEventListener("pointerdown", (ev)=>{
-    ev.preventDefault();
-    ev.stopPropagation();
-    activateLog();
-  }, {passive:false});
+    const t = rightmostAliveTower();
+    if(!t) return;
 
-  UI.oilBtn.addEventListener("pointerdown", (ev)=>{
-    ev.preventDefault();
-    ev.stopPropagation();
-    activateOil();
-  }, {passive:false});
+    const startX = t.x + t.w/2 + 6;
+    const startY = (t.baseY - towerHeight(t)) - 18;
 
-  UI.restart.addEventListener("click", ()=>{
-    if(!G.started) return;
-    reset();
-  });
+    const W = innerWidth;
+    const landY = G.groundY - 2;
 
-  // Start overlay (also unlocks audio)
-  function startGame(){
-    ensureAudio();
-    if(audio.ctx && audio.ctx.state === "suspended"){
-      audio.ctx.resume().catch(()=>{});
+    const landXs = [
+      rand(W*0.78, W*0.90),
+      rand(W*0.82, W*0.95),
+      rand(W*0.75, W*0.98),
+    ];
+
+    for(let i=0;i<3;i++){
+      const landX = landXs[i];
+      const flightT = rand(0.65, 0.85);
+      const g = 980;
+
+      const vx = (landX - startX) / flightT;
+      const vy = ((landY - startY) - 0.5*g*flightT*flightT) / flightT;
+
+      G.rocks.push({ x:startX, y:startY, vx, vy, g, alive:true });
     }
-    G.started = true;
-    UI.overlay.style.display = "none";
-    reset();
+
+    G.rockCooldown = 30;
+    sfxRockThrow();
+    setRockButtonUI();
   }
-  UI.startBtn.addEventListener("click", startGame);
-  UI.overlay.addEventListener("pointerdown", (ev)=>{
-    ev.preventDefault();
-    startGame();
-  }, {passive:false});
+
+  function updateRocks(dt){
+    if(G.rockCooldown > 0) G.rockCooldown = Math.max(0, G.rockCooldown - dt);
+
+    for(const r of G.rocks){
+      if(!r.alive) continue;
+
+      r.vy += r.g * dt;
+      r.x += r.vx * dt;
+      r.y += r.vy * dt;
+
+      if(r.y >= G.groundY - 2){
+        r.alive = false;
+        sfxRockImpact();
+        shake(5.0);
+
+        const killR = 62;
+        const killR2 = killR*killR;
+        for(const e of G.enemies){
+          if(e.state!=="alive") continue;
+          if(dist2(e.x, e.y, r.x, G.groundY) <= killR2){
+            killEnemyInstant(e);
+          }
+        }
+      }
+
+      if(r.x < -200 || r.x > innerWidth+260 || r.y < -240 || r.y > innerHeight+260){
+        r.alive = false;
+      }
+    }
+
+    G.rocks = G.rocks.filter(x=>x.alive);
+    setRockButtonUI();
+  }
 
   // ===== Background =====
   function drawBackground(){
@@ -1048,6 +1241,7 @@
     ctx.fillStyle = g;
     ctx.fillRect(0,0,W,H);
 
+    // hills
     ctx.fillStyle = "#7fb08d";
     ctx.beginPath();
     ctx.moveTo(0, G.groundY-170);
@@ -1070,6 +1264,7 @@
     ctx.closePath();
     ctx.fill();
 
+    // trees
     const treeY = G.groundY - 155;
     ctx.fillStyle = "rgba(22,55,33,.55)";
     for(let i=0;i<36;i++){
@@ -1084,6 +1279,7 @@
       ctx.fillRect(x-2, treeY+h, 4, 10);
     }
 
+    // ground
     ctx.fillStyle = "#5f8f4a";
     ctx.fillRect(0, G.groundY, W, H-G.groundY);
 
@@ -1149,6 +1345,7 @@
     ctx.restore();
   }
 
+  // ===== Update =====
   function update(dt){
     layout();
 
@@ -1157,7 +1354,7 @@
     UI.tb.textContent = String(Math.round(G.towers[1].hp));
     UI.tc.textContent = String(Math.round(G.towers[2].hp));
 
-    // NEW: decay shake
+    // shake decay
     if(G.shakeT > 0){
       G.shakeT = Math.max(0, G.shakeT - dt);
       if(G.shakeT === 0) G.shakeMag = 0;
@@ -1165,6 +1362,7 @@
 
     for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
 
+    // spawn
     if(G.started && aliveArchers()>0){
       G.nextSpawn -= dt;
       if(G.spawnedThisWave < G.enemiesToSpawn && G.nextSpawn <= 0){
@@ -1177,32 +1375,34 @@
 
     updateLog(dt);
     updateOil(dt);
+    updateRocks(dt);
 
     const t = rightmostAliveTower();
     const stopX = t ? (t.x + t.w/2 + 18) : -9999;
 
+    // enemies
     for(const e of G.enemies){
       if(e.state==="dead") continue;
       e.y = G.groundY;
 
       if(e.state==="alive"){
         e.stepT += dt * (3.5 + e.speed*0.03);
-
-        // NEW: stun countdown
         if(e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt);
       }
 
       if(e.state==="dying"){
         e.deathT += dt;
-        e.rot += e.rotV * dt;
-        e.fade = clamp(1 - (e.deathT / e.deathDur), 0, 1);
+        const p = clamp(e.deathT / e.deathDur, 0, 1);
+        const ease = 1 - Math.pow(1-p, 3);
+        e.fallA = ease;
+        e.fade = clamp(1 - p, 0, 1);
         if(e.deathT >= e.deathDur){
           e.state = "dead";
         }
         continue;
       }
 
-      // NEW: if stunned, briefly pause movement/attacking
+      // hit-stun pauses briefly
       if(e.stunT > 0){
         e.attack = false;
         continue;
@@ -1223,6 +1423,7 @@
       }
     }
 
+    // arrows
     for(const ar of G.arrows){
       if(!ar.alive) continue;
 
@@ -1233,10 +1434,19 @@
       ar.trail.push([ar.x, ar.y]);
       if(ar.trail.length > 10) ar.trail.shift();
 
+      // missed -> stay on ground for 5s
       if(ar.y >= G.groundY - 2){
         ar.alive = false;
+        const ang = Math.atan2(ar.vy, ar.vx);
+        G.stuckArrows.push({
+          x: ar.x,
+          y: G.groundY - 2,
+          ang: clamp(ang, -1.3, 1.3),
+          life: 5.0
+        });
         continue;
       }
+
       if(ar.x < -200 || ar.x > innerWidth+260 || ar.y < -240 || ar.y > innerHeight+240){
         ar.alive = false;
         continue;
@@ -1270,6 +1480,11 @@
     }
     G.arrows = G.arrows.filter(a=>a.alive);
 
+    // stuck arrows decay
+    for(const sa of G.stuckArrows) sa.life -= dt;
+    G.stuckArrows = G.stuckArrows.filter(sa=>sa.life>0);
+
+    // particles
     for(const p of G.particles){
       p.life -= dt;
       p.x += p.vx * dt;
@@ -1278,6 +1493,7 @@
     }
     G.particles = G.particles.filter(p=>p.life>0);
 
+    // crown pops
     for(const c of G.crownPops){
       c.life -= dt;
       c.y -= 32 * dt;
@@ -1305,10 +1521,11 @@
     }
   }
 
+  // ===== Draw =====
   function draw(){
     const W = innerWidth, H = innerHeight;
 
-    // NEW: apply screen shake to world drawing
+    // screen shake
     let sx = 0, sy = 0;
     if(G.shakeT > 0){
       const k = (G.shakeT / 0.12);
@@ -1322,6 +1539,7 @@
 
     drawBackground();
 
+    // towers
     for(const t of G.towers){
       const h = towerHeight(t);
       const x = t.x - t.w/2;
@@ -1344,29 +1562,13 @@
       }
     }
 
+    // archers (person + bow)
     for(const a of G.archers){
       const p = archerPos(a);
-      if(!a.alive){
-        ctx.strokeStyle = "rgba(190,40,40,.9)";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(p.x-8,p.y-8); ctx.lineTo(p.x+8,p.y+8);
-        ctx.moveTo(p.x+8,p.y-8); ctx.lineTo(p.x-8,p.y+8);
-        ctx.stroke();
-        continue;
-      }
-      ctx.fillStyle = "#23304a";
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 8, 0, Math.PI*2);
-      ctx.fill();
-
-      ctx.strokeStyle = "#c79a3a";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(p.x+7, p.y, 7, -Math.PI/2, Math.PI/2);
-      ctx.stroke();
+      drawArcherOnTower(p.x, p.y+8, a.alive);
     }
 
+    // aim reticle
     if(G.started){
       ctx.strokeStyle = "rgba(0,0,0,.18)";
       ctx.lineWidth = 2;
@@ -1376,6 +1578,7 @@
       ctx.stroke();
     }
 
+    // enemies
     for(const e of G.enemies){
       if(e.state==="dead") continue;
 
@@ -1393,6 +1596,57 @@
     drawOilPuddle();
     drawLog();
 
+    // rocks
+    for(const r of G.rocks){
+      ctx.save();
+      ctx.translate(r.x, r.y);
+      ctx.fillStyle = "#6b7280";
+      ctx.beginPath();
+      ctx.ellipse(0,0,10,8,0.4,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.18)";
+      ctx.beginPath();
+      ctx.ellipse(-3,-2,4,3,0.4,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // stuck arrows (5s)
+    for(const sa of G.stuckArrows){
+      const a = clamp(sa.life/5, 0, 1);
+      ctx.globalAlpha = 0.35 + 0.65*a;
+      ctx.save();
+      ctx.translate(sa.x, sa.y);
+      ctx.rotate(sa.ang);
+
+      ctx.strokeStyle = "#3a2a14";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-16, 0);
+      ctx.lineTo(10, 0);
+      ctx.stroke();
+
+      ctx.fillStyle = "#c0c6d3";
+      ctx.beginPath();
+      ctx.moveTo(10, 0);
+      ctx.lineTo(4, -3);
+      ctx.lineTo(4, 3);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,.25)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-16, 0); ctx.lineTo(-20, -3);
+      ctx.moveTo(-16, 0); ctx.lineTo(-20, 3);
+      ctx.stroke();
+
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+    ctx.globalAlpha = 1;
+
+    // live arrows
     for(const a of G.arrows){
       ctx.strokeStyle = "rgba(0,0,0,.18)";
       ctx.lineWidth = 2;
@@ -1416,6 +1670,7 @@
       ctx.fill();
     }
 
+    // particles
     for(const p of G.particles){
       ctx.globalAlpha = clamp(p.life,0,1);
       if(p.kind==="blood"){
@@ -1428,6 +1683,7 @@
     }
     ctx.globalAlpha = 1;
 
+    // crown pops
     for(const c of G.crownPops){
       const alpha = clamp(c.life, 0, 1);
       ctx.globalAlpha = alpha;
@@ -1435,9 +1691,62 @@
       ctx.globalAlpha = 1;
     }
 
-    ctx.restore(); // end shake transform
+    ctx.restore();
   }
 
+  // ===== Input =====
+  function canvasXY(ev){
+    const r = canvas.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  }
+
+  canvas.addEventListener("pointerdown", (ev)=>{
+    if(!G.started) return;
+    ev.preventDefault();
+    const {x,y} = canvasXY(ev);
+    G.aimX = x;
+    G.aimY = y;
+    G.aimActive = true;
+    fireVolley();
+  }, {passive:false});
+
+  UI.logBtn.addEventListener("pointerdown", (ev)=>{
+    ev.preventDefault(); ev.stopPropagation();
+    activateLog();
+  }, {passive:false});
+
+  UI.oilBtn.addEventListener("pointerdown", (ev)=>{
+    ev.preventDefault(); ev.stopPropagation();
+    activateOil();
+  }, {passive:false});
+
+  UI.rockBtn.addEventListener("pointerdown", (ev)=>{
+    ev.preventDefault(); ev.stopPropagation();
+    activateRocks();
+  }, {passive:false});
+
+  UI.restart.addEventListener("click", ()=>{
+    if(!G.started) return;
+    reset();
+  });
+
+  // Start overlay (unlocks audio)
+  function startGame(){
+    ensureAudio();
+    if(audio.ctx && audio.ctx.state === "suspended"){
+      audio.ctx.resume().catch(()=>{});
+    }
+    G.started = true;
+    UI.overlay.style.display = "none";
+    reset();
+  }
+  UI.startBtn.addEventListener("click", startGame);
+  UI.overlay.addEventListener("pointerdown", (ev)=>{
+    ev.preventDefault();
+    startGame();
+  }, {passive:false});
+
+  // ===== Frame loop =====
   let last = performance.now();
   function frame(now){
     const dt = Math.min(0.033, (now-last)/1000);
