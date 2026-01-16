@@ -304,6 +304,11 @@
     beep({type:"sawtooth", freq:220, endFreq:70, dur:0.18, gain:0.14});
     beep({noise:true, dur:0.10, gain:0.08});
   }
+  // NEW: tower thud
+  function sfxTowerThud(){
+    beep({type:"sine", freq:110, endFreq:60, dur:0.10, gain:0.18});
+    beep({noise:true, dur:0.06, gain:0.08});
+  }
 
   // ===== Enemy Types =====
   const ENEMY = {
@@ -347,6 +352,10 @@
 
     threeHitStreak: 0,
     dmgMult: 1.0,
+
+    // Screen shake (NEW)
+    shakeT: 0,
+    shakeMag: 0,
 
     // Log power
     logCooldown: 0,
@@ -416,6 +425,12 @@
     return best;
   }
 
+  // NEW: shake helper
+  function shake(amount=2.5){
+    G.shakeT = Math.max(G.shakeT, 0.12);
+    G.shakeMag = Math.max(G.shakeMag, amount);
+  }
+
   function chooseTypeForWave(w){
     const r = Math.random();
     if(w<3) return (r<0.30) ? "scout" : "soldier";
@@ -459,6 +474,9 @@
 
       stepT: rand(0, 6.28),
 
+      // NEW: hit-stun timer
+      stunT: 0,
+
       deathT: 0,
       deathDur: 0.75,
       rot: 0,
@@ -500,6 +518,10 @@
 
     G.threeHitStreak = 0;
     G.dmgMult = 1.0;
+
+    // NEW: clear shake
+    G.shakeT = 0;
+    G.shakeMag = 0;
 
     G.logCooldown = 0;
     G.logActive = false;
@@ -608,7 +630,11 @@
     const armOut = 10*scale;
     const armDown = (e.attack ? 2*scale : 6*scale);
 
-    const bob = (e.state==="alive" && !e.attack) ? (step * 1.6*scale) : 0;
+    // If stunned, reduce bob/swing for a "hit-stun" feel
+    const stunned = (e.stunT > 0 && e.state==="alive");
+    const bob = (!stunned && e.state==="alive" && !e.attack) ? (step * 1.6*scale) : 0;
+    const swingScale = stunned ? 0.15 : 1.0;
+
     ctx.translate(0, bob);
 
     ctx.strokeStyle = "#151515";
@@ -628,9 +654,9 @@
     ctx.stroke();
 
     const leftHandX  = -armOut;
-    const leftHandY  = armY + armDown + armSwing*1.2*scale;
+    const leftHandY  = armY + armDown + armSwing*1.2*scale*swingScale;
     const rightHandX =  armOut;
-    const rightHandY = armY + armDown - armSwing*1.2*scale;
+    const rightHandY = armY + armDown - armSwing*1.2*scale*swingScale;
 
     ctx.beginPath();
     ctx.moveTo(0, armY);
@@ -650,7 +676,7 @@
     const legOut = 8*scale;
     const legDown = 12*scale;
 
-    const legSwing = (e.state==="alive" && !e.attack) ? (step * 4*scale) : (step * 1.2*scale);
+    const legSwing = (e.state==="alive" && !e.attack && !stunned) ? (step * 4*scale) : (step * 1.0*scale);
     ctx.beginPath();
     ctx.moveTo(0, torsoBottomY);
     ctx.lineTo(-legOut, torsoBottomY + legDown + legSwing);
@@ -795,11 +821,19 @@
     G.volleyDeaths = [];
   }
 
-  // ===== Tower damage =====
+  // ===== Tower damage (NEW: thud + shake) =====
   function damageRightmostTower(amount){
     const t = rightmostAliveTower();
     if(!t) return;
+
+    const before = t.hp;
     t.hp = clamp(t.hp - amount, 0, 100);
+
+    if(t.hp < before){
+      sfxTowerThud();
+      shake(clamp(amount * 0.55, 1.8, 6.0));
+    }
+
     if(t.hp<=0){
       for(const a of t.archers) a.alive = false;
     }
@@ -844,10 +878,14 @@
     startEnemyDeath(e, true);
   }
 
+  // NEW: hit-stun on arrow impact happens here
   function damageEnemy(e, amount){
     if(e.state!=="alive") return;
+
+    e.stunT = Math.max(e.stunT, 0.10); // brief hit-stun
     e.hp -= amount;
     sfxHit();
+
     if(e.hp <= 0){
       startEnemyDeath(e, false);
     }
@@ -1119,6 +1157,12 @@
     UI.tb.textContent = String(Math.round(G.towers[1].hp));
     UI.tc.textContent = String(Math.round(G.towers[2].hp));
 
+    // NEW: decay shake
+    if(G.shakeT > 0){
+      G.shakeT = Math.max(0, G.shakeT - dt);
+      if(G.shakeT === 0) G.shakeMag = 0;
+    }
+
     for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
 
     if(G.started && aliveArchers()>0){
@@ -1143,6 +1187,9 @@
 
       if(e.state==="alive"){
         e.stepT += dt * (3.5 + e.speed*0.03);
+
+        // NEW: stun countdown
+        if(e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt);
       }
 
       if(e.state==="dying"){
@@ -1152,6 +1199,12 @@
         if(e.deathT >= e.deathDur){
           e.state = "dead";
         }
+        continue;
+      }
+
+      // NEW: if stunned, briefly pause movement/attacking
+      if(e.stunT > 0){
+        e.attack = false;
         continue;
       }
 
@@ -1254,6 +1307,18 @@
 
   function draw(){
     const W = innerWidth, H = innerHeight;
+
+    // NEW: apply screen shake to world drawing
+    let sx = 0, sy = 0;
+    if(G.shakeT > 0){
+      const k = (G.shakeT / 0.12);
+      const mag = G.shakeMag * (0.35 + 0.65*k);
+      sx = (Math.random()*2-1) * mag;
+      sy = (Math.random()*2-1) * mag * 0.65;
+    }
+
+    ctx.save();
+    ctx.translate(sx, sy);
 
     drawBackground();
 
@@ -1369,6 +1434,8 @@
       drawCrownStack(c.count, c.x, c.y);
       ctx.globalAlpha = 1;
     }
+
+    ctx.restore(); // end shake transform
   }
 
   let last = performance.now();
