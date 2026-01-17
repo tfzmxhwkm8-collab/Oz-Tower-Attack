@@ -8,22 +8,28 @@
   html,body{margin:0;height:100%;background:#0f1116;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto}
   canvas{display:block;width:100vw;height:100vh;touch-action:manipulation;-webkit-user-select:none;user-select:none}
 
-  /* Smaller HUD */
+  /* Smaller HUD (RIGHT side, thinner/longer) */
   .hud{
-    position:fixed;left:10px;top:10px;z-index:5;color:#e8ecff;
+    position:fixed;
+    right:10px; top:10px; left:auto;
+    z-index:5;color:#e8ecff;
     background:rgba(0,0,0,.32);
-    padding:8px 10px;border-radius:10px;
-    backdrop-filter: blur(6px);
-    font-size:12px;line-height:1.25;
-    min-width:260px;
-    padding-top: calc(8px + env(safe-area-inset-top));
-    padding-left: calc(10px + env(safe-area-inset-left));
     border:1px solid rgba(255,255,255,.08);
+    border-radius:10px;
+    backdrop-filter: blur(6px);
+
+    /* thinner + longer */
+    padding:6px 10px;
+    font-size:12px;line-height:1.2;
+    min-width:360px;
+
+    padding-top: calc(6px + env(safe-area-inset-top));
+    padding-right: calc(10px + env(safe-area-inset-right));
   }
   .row{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}
-  .leftcol{display:flex;flex-direction:column;gap:2px}
+  .leftcol{display:flex;flex-direction:column;gap:6px}
   .btn{
-    margin-top:6px;display:inline-block;background:#2a63ff;color:#fff;
+    margin-top:2px;display:inline-block;background:#2a63ff;color:#fff;
     padding:5px 9px;border-radius:9px;font-weight:900;font-size:12px;
     user-select:none;cursor:pointer;
   }
@@ -140,11 +146,17 @@
 <div class="hud">
   <div class="row">
     <div class="leftcol">
-      <div><b>Wave:</b> <span id="wave">1</span></div>
-      <div><b>Crowns:</b> <span id="crowns">0</span> &nbsp; <b>High:</b> <span id="high">0</span></div>
-      <div><b>Alive:</b> <span id="alive">3</span>/3 &nbsp; <b>DMG:</b> <span id="dmg">x1.0</span></div>
-      <div><b>Towers:</b> A <span id="ta">100</span>% &nbsp; B <span id="tb">100</span>% &nbsp; C <span id="tc">100</span>%</div>
-      <div><b>3-hit streak:</b> <span id="streak">0</span></div>
+      <div>
+        <b>Wave:</b> <span id="wave">1</span>
+        &nbsp; | &nbsp;
+        <b>Crowns:</b> <span id="crowns">0</span>
+        &nbsp; | &nbsp;
+        <b>High:</b> <span id="high">0</span>
+        &nbsp; | &nbsp;
+        <b>DMG:</b> <span id="dmg">x1.0</span>
+        &nbsp; | &nbsp;
+        <b>Streak:</b> <span id="streak">0</span>
+      </div>
       <div class="btn" id="restart">Restart</div>
     </div>
 
@@ -199,10 +211,6 @@
     wave: document.getElementById("wave"),
     crowns: document.getElementById("crowns"),
     high: document.getElementById("high"),
-    alive: document.getElementById("alive"),
-    ta: document.getElementById("ta"),
-    tb: document.getElementById("tb"),
-    tc: document.getElementById("tc"),
     dmg: document.getElementById("dmg"),
     streak: document.getElementById("streak"),
     restart: document.getElementById("restart"),
@@ -416,14 +424,20 @@
     G.groundY = Math.floor(H*0.82);
     G.laneY = G.groundY;
 
+    // thinner towers
     const thinW = Math.max(28, Math.floor(W*0.022));
     for(const t of G.towers) t.w = thinW;
 
+    // staggered placement (same X spacing you already had)
     G.towers[0].x = Math.floor(W*0.07);
     G.towers[1].x = Math.floor(W*0.13);
     G.towers[2].x = Math.floor(W*0.19);
 
+    // bases stay on ground; heights are staggered via maxH (visual only; HP unchanged)
     for(const t of G.towers) t.baseY = G.groundY;
+    G.towers[0].maxH = 255; // tallest
+    G.towers[1].maxH = 205; // lower
+    G.towers[2].maxH = 165; // lowest
 
     G.logY = G.groundY - 10;
     G.oilY = G.groundY - 2;
@@ -1158,9 +1172,7 @@
     setOilButtonUI();
   }
 
-  // NEW: Rocks ability (30s cooldown).
-  // Throws 3 rocks from the rightmost alive tower; they arc and land in the back 1/4 of the arena (right side),
-  // killing enemies near each impact.
+  // Rocks ability (30s cooldown)
   function activateRocks(){
     if(!G.started) return;
     if(G.rockCooldown > 0) return;
@@ -1349,11 +1361,6 @@
   function update(dt){
     layout();
 
-    UI.alive.textContent = String(aliveArchers());
-    UI.ta.textContent = String(Math.round(G.towers[0].hp));
-    UI.tb.textContent = String(Math.round(G.towers[1].hp));
-    UI.tc.textContent = String(Math.round(G.towers[2].hp));
-
     // shake decay
     if(G.shakeT > 0){
       G.shakeT = Math.max(0, G.shakeT - dt);
@@ -1504,6 +1511,9 @@
       G.volleyResolveT += dt;
       resolveVolleyIfReady();
     }
+
+    // cleanup dead enemies (prevents performance slowdown)
+    G.enemies = G.enemies.filter(e => e.state !== "dead");
 
     const anyAlive = G.enemies.some(e=>e.state==="alive" || e.state==="dying");
     const allSpawned = (G.spawnedThisWave >= G.enemiesToSpawn);
