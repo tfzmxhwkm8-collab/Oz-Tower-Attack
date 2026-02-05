@@ -242,21 +242,35 @@
 <div class="hud">
   <div class="row">
     <div class="leftcol">
-      <div class="statsLine">
-        <div class="statsPrimary">
-          <b>Wave:</b> <span id="wave">1</span>
-          &nbsp; | &nbsp;
-          <b>Crowns:</b> <span id="crowns">0</span>
-        </div>
-        <div class="statsSecondary">
-          &nbsp; | &nbsp;
-          <b>High:</b> <span id="high">0</span>
-          &nbsp; | &nbsp;
-          <b>DMG:</b> <span id="dmg">x1.0</span>
-          &nbsp; | &nbsp;
-          <b>Streak:</b> <span id="streak">0</span>
-        </div>
-      </div>
+   <div class="statsLine">
+  <div class="statsPrimary">
+    <b data-full="Wave:" data-short="W:">Wave:</b>
+    <span id="wave">1</span>
+
+    &nbsp; | &nbsp;
+
+    <b data-full="Crowns:" data-short="Score:">Crowns:</b>
+    <span id="crowns">0</span>
+  </div>
+
+  <div class="statsSecondary">
+    &nbsp; | &nbsp;
+
+    <b data-full="High:" data-short="Hi:">High:</b>
+    <span id="high">0</span>
+
+    &nbsp; | &nbsp;
+
+    <b data-full="DMG:" data-short="DMG:">DMG:</b>
+    <span id="dmg">x1.0</span>
+
+    &nbsp; | &nbsp;
+
+    <b data-full="Streak:" data-short="Str:">Streak:</b>
+    <span id="streak">0</span>
+  </div>
+</div>
+
 
       <div class="btn" id="restart">Restart</div>
     </div>
@@ -330,6 +344,61 @@
   }
 
   const STORAGE_KEY = "oz_tower_attack_highscore_v1";
+const LEADERBOARD_KEY = "oz_tower_attack_leaderboard_v1";
+
+const NAMES = [
+  "Rhett","Nova","Atlas","Luna","Maverick","Kai","Sage","Jett","Skye","Harper",
+  "Nico","Quinn","Blaze","Indy","Rowan","Avery","Zane","Ivy","Milo","Phoenix"
+];
+
+const pickName = () => NAMES[Math.floor(Math.random() * NAMES.length)];
+
+function loadLeaderboard(){
+  try{
+    const raw = localStorage.getItem(LEADERBOARD_KEY);
+    if(!raw) return null;
+    const arr = JSON.parse(raw);
+    if(!Array.isArray(arr)) return null;
+
+    return arr
+      .filter(x => x && typeof x.score === "number" && typeof x.name === "string")
+      .map(x => ({ name: x.name.slice(0,18), score: Math.max(0, Math.floor(x.score)) }))
+      .sort((a,b)=>b.score-a.score)
+      .slice(0,10);
+  }catch(_){
+    return null;
+  }
+}
+
+function saveLeaderboard(list){
+  try{
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(list.slice(0,10)));
+  }catch(_){}
+}
+
+function seedLeaderboardIfEmpty(){
+  let lb = loadLeaderboard();
+  if(lb && lb.length) return lb;
+
+  lb = Array.from({length:10}, () => ({
+    name: pickName(),
+    score: randi(500,1000)
+  }))
+  .sort((a,b)=>b.score-a.score)
+  .slice(0,10);
+
+  saveLeaderboard(lb);
+  return lb;
+}
+
+function addScoreToLeaderboard(name, score){
+  const lb = seedLeaderboardIfEmpty();
+  lb.push({ name, score: Math.max(0, Math.floor(score)) });
+  lb.sort((a,b)=>b.score-a.score);
+  const trimmed = lb.slice(0,10);
+  saveLeaderboard(trimmed);
+  return trimmed;
+}
 
   const UI = {
     wave: document.getElementById("wave"),
@@ -480,20 +549,6 @@
     shield: { name:"Shield", hpMul:1.20, spdMul:0.90, dmgMul:1.05, r:17, block:0.35, dr:0.70 },
     brute:  { name:"Brute",  hpMul:1.90, spdMul:0.72, dmgMul:1.25, r:18 },
   };
-
-  // Random leaderboard names (instead of "CPU")
-  const NAMES = [
-    "Rhett","Oz","Nova","Maverick","Luna","Atlas","Kai","Sage","Jett","Skye",
-    "Harper","Nico","Quinn","Blaze","Indy","Rowan","Avery","Zane","Ivy","Milo",
-    "Phoenix","Echo","Rogue","Aria","Wade","Remy","Cleo","Gage","Violet","Bryn"
-  ];
-  function pickName(used){
-    for(let tries=0;tries<30;tries++){
-      const n = NAMES[randi(0, NAMES.length-1)];
-      if(!used.has(n)) return n;
-    }
-    return "Rival";
-  }
 
   let NEXT_ID = 1;
 
@@ -785,40 +840,34 @@
   }
 
   // ===== End Screen Top 10 =====
-  function showEndScreen(){
-    G.gameOver = true;
+function showEndScreen(){
+  G.gameOver = true;
 
-    UI.finalScore.textContent = String(G.crowns);
+  UI.finalScore.textContent = String(G.crowns);
 
-    // Build top10: player + 9 random scores between 500 and 1000 + random names
-    const used = new Set(["YOU"]);
-    const scores = [];
+  // Add score to persistent leaderboard
+  const top10 = addScoreToLeaderboard("YOU", G.crowns);
 
-    for(let i=0;i<9;i++){
-      const nm = pickName(used);
-      used.add(nm);
-      scores.push({ score: randi(500,1000), me:false, name:nm });
-    }
-    scores.push({ score: G.crowns, me:true, name:"YOU" });
+  UI.top10.innerHTML = "";
+  top10.forEach((s, idx)=>{
+    const li = document.createElement("li");
+    if(s.name === "YOU") li.classList.add("me");
 
-    scores.sort((a,b)=>b.score-a.score);
+    const left = document.createElement("span");
+    left.textContent = `${idx+1}. ${s.name}`;
 
-    UI.top10.innerHTML = "";
-    scores.slice(0,10).forEach((s, idx)=>{
-      const li = document.createElement("li");
-      if(s.me) li.classList.add("me");
-      const left = document.createElement("span");
-      left.textContent = `${idx+1}. ${s.name}`;
-      const right = document.createElement("span");
-      right.textContent = String(s.score);
-      li.appendChild(left);
-      li.appendChild(right);
-      UI.top10.appendChild(li);
-    });
+    const right = document.createElement("span");
+    right.textContent = String(s.score);
 
-    UI.endOverlay.style.display = "flex";
-    ignoreInputUntil = performance.now() + 200;
-  }
+    li.appendChild(left);
+    li.appendChild(right);
+    UI.top10.appendChild(li);
+  });
+
+  UI.endOverlay.style.display = "flex";
+  ignoreInputUntil = performance.now() + 200;
+}
+
 
   // ===== Gear =====
   function drawHelmet(x,y,scale){
@@ -2007,6 +2056,18 @@
 
     requestAnimationFrame(frame);
   }
+function updateHudLabels(){
+  const portrait = window.matchMedia("(max-width: 480px) and (orientation: portrait)").matches;
+
+  document.querySelectorAll(".statsLine b").forEach(el=>{
+    el.textContent = portrait
+      ? el.dataset.short
+      : el.dataset.full;
+  });
+}
+
+addEventListener("resize", updateHudLabels, {passive:true});
+updateHudLabels();
 
   layout();
   reset();
