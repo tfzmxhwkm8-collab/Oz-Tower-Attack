@@ -1095,20 +1095,121 @@ function showEndScreen(){
   }
 
   // ===== Archer =====
-  function drawArcherOnTower(x, y, alive){
-    ctx.save();
-    ctx.translate(x, y);
+function drawArcherOnTower(x, y, alive){
+  ctx.save();
+  ctx.translate(x, y);
 
-    if(!alive){
-      ctx.strokeStyle = "rgba(190,40,40,.9)";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(-10,-10); ctx.lineTo(10,10);
-      ctx.moveTo(10,-10); ctx.lineTo(-10,10);
-      ctx.stroke();
-      ctx.restore();
-      return;
-    }
+  if(!alive){
+    ctx.strokeStyle = "rgba(190,40,40,.9)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-10,-10); ctx.lineTo(10,10);
+    ctx.moveTo(10,-10); ctx.lineTo(-10,10);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  ctx.lineCap = "round";
+
+  // --- proportions ---
+  const headR = 4.2;
+  const shoulderY = -4;
+  const hipY = 9;
+
+  // stance
+  const legOut = 6;
+  const legDown = 12;
+
+  // head
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.arc(0, -18, headR, 0, Math.PI*2);
+  ctx.stroke();
+
+  // torso
+  ctx.beginPath();
+  ctx.moveTo(0, -14);
+  ctx.lineTo(0, shoulderY);
+  ctx.lineTo(0, hipY);
+  ctx.stroke();
+
+  // legs (slight archer stance)
+  ctx.beginPath();
+  ctx.moveTo(0, hipY);
+  ctx.lineTo(-legOut, hipY + legDown);
+  ctx.moveTo(0, hipY);
+  ctx.lineTo( legOut, hipY + legDown - 2);
+  ctx.stroke();
+
+  // arms + bow
+  const bowHandX = 11;
+  const bowHandY = shoulderY + 4;
+
+  const drawHandX = 3;
+  const drawHandY = shoulderY + 6;
+
+  // bow arm (straight)
+  ctx.beginPath();
+  ctx.moveTo(0, shoulderY);
+  ctx.lineTo(bowHandX, bowHandY);
+  ctx.stroke();
+
+  // draw arm (bent)
+  ctx.beginPath();
+  ctx.moveTo(0, shoulderY);
+  ctx.lineTo(drawHandX, drawHandY);
+  ctx.lineTo(drawHandX - 6, drawHandY + 2);
+  ctx.stroke();
+
+  // bow curve
+  const bowR = 12;
+  ctx.strokeStyle = "#8b5a2b";
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.arc(bowHandX - 2, bowHandY, bowR, -Math.PI/2, Math.PI/2);
+  ctx.stroke();
+
+  // bow string
+  ctx.strokeStyle = "rgba(0,0,0,.35)";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(bowHandX - 2, bowHandY - bowR);
+  ctx.lineTo(drawHandX - 6, drawHandY + 2);
+  ctx.lineTo(bowHandX - 2, bowHandY + bowR);
+  ctx.stroke();
+
+  // arrow (aligned with string)
+  const arrowY = drawHandY + 1;
+  ctx.strokeStyle = "#3a2a14";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(drawHandX - 6, arrowY);
+  ctx.lineTo(drawHandX + 18, arrowY);
+  ctx.stroke();
+
+  // arrow head
+  ctx.fillStyle = "#c0c6d3";
+  ctx.beginPath();
+  ctx.moveTo(drawHandX + 18, arrowY);
+  ctx.lineTo(drawHandX + 13, arrowY - 3);
+  ctx.lineTo(drawHandX + 13, arrowY + 3);
+  ctx.closePath();
+  ctx.fill();
+
+  // fletching
+  ctx.strokeStyle = "rgba(0,0,0,.25)";
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(drawHandX - 6, arrowY);
+  ctx.lineTo(drawHandX - 10, arrowY - 2);
+  ctx.moveTo(drawHandX - 6, arrowY);
+  ctx.lineTo(drawHandX - 10, arrowY + 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
 
     ctx.strokeStyle = "#111827";
     ctx.lineWidth = 2.5;
@@ -1205,7 +1306,7 @@ function showEndScreen(){
 
       const p = archerPos(a);
       const spread = (i-1) * 10;
-      spawnArrow(i, p.x, p.y, G.aimX, G.aimY + spread, volleyId);
+      spawnArrow(i, p.x + 10, p.y + 2, G.aimX, G.aimY + spread, volleyId);
 
       a.cooldown = 0.55;
       shotAny = true;
