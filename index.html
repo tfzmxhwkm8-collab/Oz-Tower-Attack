@@ -732,9 +732,18 @@ function addScoreToLeaderboard(name, score){
     };
   }
 
-  function makeArcher(towerIndex){
-    return { id: NEXT_ID++, towerIndex, alive:true, cooldown:0 };
-  }
+function makeArcher(towerIndex){
+  return {
+    id: NEXT_ID++,
+    towerIndex,
+    alive:true,
+    cooldown:0,
+
+    // animation
+    anim: 0,          // 0..1 timeline for current shot
+    animState: "idle" // idle | draw | release | reload
+  };
+}
 
   function startWave(n){
     G.wave = n;
@@ -1097,7 +1106,8 @@ function showEndScreen(){
   }
 
   // ===== Archer =====
-function drawArcherOnTower(x, y, alive){
+function drawArcherOnTower(x, y, archer){
+  const alive = archer.alive;
   ctx.save();
   ctx.translate(x, y);
 
@@ -1113,6 +1123,19 @@ function drawArcherOnTower(x, y, alive){
   }
 
   ctx.lineCap = "round";
+  // --- animation helpers ---
+  const t = (archer.animState === "idle") ? 0 : archer.anim; // 0..1
+  const phaseDraw    = (archer.animState === "draw")    ? 1 : 0;
+  const phaseRelease = (archer.animState === "release") ? 1 : 0;
+  const phaseReload  = (archer.animState === "reload")  ? 1 : 0;
+
+  // smooth-ish pull amount (0..1)
+  const pull = (archer.animState === "draw")    ? Math.min(1, t/0.45)
+             : (archer.animState === "release") ? 1 - Math.min(1, (t-0.45)/0.15)
+             : 0;
+
+  // reload hand motion (0..1)
+  const reload = (archer.animState === "reload") ? Math.min(1, (t-0.60)/0.40) : 0;
 
   // --- proportions ---
   const headR = 4.2;
@@ -1149,8 +1172,15 @@ function drawArcherOnTower(x, y, alive){
   const bowHandX = 11;
   const bowHandY = shoulderY + 4;
 
-  const drawHandX = 3;
-  const drawHandY = shoulderY + 6;
+  // draw hand pulls back while drawing, then returns on release
+  const drawHandX = 3 - pull * 7;      // pulls left
+  const drawHandY = shoulderY + 6 + pull * 1.5;
+
+  // during reload, draw hand dips down/back like grabbing a new arrow
+  const reloadDip = reload * 7;
+  const reloadBack = reload * 4;
+  const drawHandX2 = drawHandX - reloadBack;
+  const drawHandY2 = drawHandY + reloadDip;
 
   // bow arm (straight)
   ctx.beginPath();
@@ -1161,8 +1191,8 @@ function drawArcherOnTower(x, y, alive){
   // draw arm (bent)
   ctx.beginPath();
   ctx.moveTo(0, shoulderY);
-  ctx.lineTo(drawHandX, drawHandY);
-  ctx.lineTo(drawHandX - 6, drawHandY + 2);
+  ctx.lineTo(drawHandX2, drawHandY2);
+  ctx.lineTo(drawHandX2 - 6, drawHandY2 + 2);
   ctx.stroke();
 
   // bow curve
@@ -1178,25 +1208,35 @@ function drawArcherOnTower(x, y, alive){
   ctx.lineWidth = 1.2;
   ctx.beginPath();
   ctx.moveTo(bowHandX - 2, bowHandY - bowR);
-  ctx.lineTo(drawHandX - 6, drawHandY + 2);
+  ctx.lineTo(drawHandX2 - 6, drawHandY2 + 2);
   ctx.lineTo(bowHandX - 2, bowHandY + bowR);
   ctx.stroke();
 
-  // arrow (aligned with string)
-  const arrowY = drawHandY + 1;
+// arrow (aligned with string)
+// arrow appears during draw + release, disappears while reloading
+const showArrow =
+  (archer.animState === "draw" ||
+   archer.animState === "release" ||
+   archer.animState === "idle" ||
+   !archer.animState); // fallback if not set yet
+
+if(showArrow){
+  const arrowY = drawHandY2 + 1;
+
+  // arrow shaft (moves with draw hand)
   ctx.strokeStyle = "#3a2a14";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(drawHandX - 6, arrowY);
-  ctx.lineTo(drawHandX + 18, arrowY);
+  ctx.moveTo(drawHandX2 - 6, arrowY);
+  ctx.lineTo(drawHandX2 + 18, arrowY);
   ctx.stroke();
 
   // arrow head
   ctx.fillStyle = "#c0c6d3";
   ctx.beginPath();
-  ctx.moveTo(drawHandX + 18, arrowY);
-  ctx.lineTo(drawHandX + 13, arrowY - 3);
-  ctx.lineTo(drawHandX + 13, arrowY + 3);
+  ctx.moveTo(drawHandX2 + 18, arrowY);
+  ctx.lineTo(drawHandX2 + 13, arrowY - 3);
+  ctx.lineTo(drawHandX2 + 13, arrowY + 3);
   ctx.closePath();
   ctx.fill();
 
@@ -1204,14 +1244,16 @@ function drawArcherOnTower(x, y, alive){
   ctx.strokeStyle = "rgba(0,0,0,.25)";
   ctx.lineWidth = 1.3;
   ctx.beginPath();
-  ctx.moveTo(drawHandX - 6, arrowY);
-  ctx.lineTo(drawHandX - 10, arrowY - 2);
-  ctx.moveTo(drawHandX - 6, arrowY);
-  ctx.lineTo(drawHandX - 10, arrowY + 2);
+  ctx.moveTo(drawHandX2 - 6, arrowY);
+  ctx.lineTo(drawHandX2 - 10, arrowY - 2);
+  ctx.moveTo(drawHandX2 - 6, arrowY);
+  ctx.lineTo(drawHandX2 - 10, arrowY + 2);
   ctx.stroke();
-
-  ctx.restore();
 }
+
+ctx.restore();
+}
+
 
   // ===== Shooting (multi-volley fix) =====
   function beginVolley(){
@@ -1263,6 +1305,8 @@ function drawArcherOnTower(x, y, alive){
       spawnArrow(i, p.x + 10, p.y + 2, G.aimX, G.aimY + spread, volleyId);
 
       a.cooldown = 0.55;
+      a.anim = 0;
+      a.animState = "draw";
       shotAny = true;
     }
 
@@ -1665,13 +1709,30 @@ function drawArcherOnTower(x, y, alive){
   // ===== Update =====
   function update(dt){
     layout();
+for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
+     // ✅ always animate archers (even on game over)
+  for(const a of G.archers){
+    if(!a.alive) { a.animState = "idle"; a.anim = 0; continue; }
+    if(a.animState === "idle") continue;
 
-    // If game over, keep UI consistent but stop gameplay updates
+    const shotDur = 0.85;
+    a.anim = Math.min(1, a.anim + dt / shotDur);
+
+    if(a.anim < 0.55) a.animState = "draw";
+    else if(a.anim < 0.70) a.animState = "release";
+    else a.animState = "reload";
+
+    if(a.anim >= 1){
+      a.animState = "idle";
+      a.anim = 0;
+    }
+  }
+    
+    
     if(G.gameOver){
       updateLog(dt);
       updateOil(dt);
       updateRocks(dt);
-      for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
       resolveVolleysIfReady(dt);
       return;
     }
@@ -1680,9 +1741,6 @@ function drawArcherOnTower(x, y, alive){
       G.shakeT = Math.max(0, G.shakeT - dt);
       if(G.shakeT === 0) G.shakeMag = 0;
     }
-
-    for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
-
     if(G.started && aliveArchers()>0){
       G.nextSpawn -= dt;
       if(G.spawnedThisWave < G.enemiesToSpawn && G.nextSpawn <= 0){
@@ -1884,7 +1942,7 @@ function drawArcherOnTower(x, y, alive){
     // archers
     for(const a of G.archers){
       const p = archerPos(a);
-      drawArcherOnTower(p.x, p.y+8, a.alive);
+      drawArcherOnTower(p.x, p.y+8, a);
     }
 
     // aim reticle
