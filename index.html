@@ -94,6 +94,12 @@
   }
   .powerBtn.ready{ background:#ffffff; }
   .powerBtn.cooldown{ background:#9aa0a6; }
+  .powerBtn.disabled{
+    background:#3b3f46;
+    opacity:.55;
+    filter:saturate(.2);
+    cursor:not-allowed;
+  }
 
   .coolText{
     position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);
@@ -185,6 +191,30 @@
   }
   .muted{font-size:12px;opacity:.8}
 
+  /* End screen list */
+  .scores{
+    margin:10px 0 14px;
+    padding:0;
+    list-style:none;
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:12px;
+    overflow:hidden;
+  }
+  .scores li{
+    display:flex;
+    justify-content:space-between;
+    padding:8px 10px;
+    background:rgba(255,255,255,.03);
+    border-bottom:1px solid rgba(255,255,255,.06);
+    font-size:13px;
+  }
+  .scores li:last-child{border-bottom:0}
+  .scores li.me{
+    background:rgba(42,99,255,.18);
+    font-weight:900;
+  }
+  .hint{font-size:12px;opacity:.85;margin:0 0 12px}
+
   /* extra: on very small landscape screens, shrink text slightly */
   @media (max-height: 420px) and (orientation: landscape){
     .hud{ font-size:11px; padding:5px 8px; }
@@ -234,6 +264,7 @@
   </div>
 </div>
 
+<!-- START OVERLAY -->
 <div id="overlay" class="overlay">
   <div class="panel">
     <h1 class="title">Oz Tower Attack</h1>
@@ -247,10 +278,28 @@
       <li><b>Log</b> (60s) kills enemies on the path. <b>Oil</b> (45s) burns enemies near the rightmost tower.</li>
       <li><b>Rocks</b> (30s) throws 3 rocks that land in the back 1/4 and kill on impact.</li>
       <li>Get <b>1.5× damage</b> after <b>3</b> consecutive <b>3-hit volleys</b>.</li>
+      <li><b>Keyboard:</b> Space/Enter fires, 1=Log, 2=Oil, 3=Rocks.</li>
+      <li><b>Drag</b> after tapping to adjust aim.</li>
     </ul>
     <div class="startRow">
       <button id="startBtn" class="startBtn">Start</button>
       <div class="muted">Sound turns on after you press Start (required on mobile).</div>
+    </div>
+  </div>
+</div>
+
+<!-- END OVERLAY -->
+<div id="endOverlay" class="overlay" style="display:none;">
+  <div class="panel">
+    <h1 class="title">Game Over</h1>
+    <p class="sub">Your score: <b><span id="finalScore">0</span></b> crowns</p>
+
+    <div class="hint">Top 10 (includes you + 9 random scores between 500 and 1000)</div>
+    <ul id="top10" class="scores"></ul>
+
+    <div class="startRow">
+      <button id="playAgainBtn" class="startBtn">Play Again</button>
+      <div class="muted">Tip: Space/Enter fires, drag to fine-tune aim.</div>
     </div>
   </div>
 </div>
@@ -277,12 +326,18 @@
     rockCd: document.getElementById("rockCd"),
     overlay: document.getElementById("overlay"),
     startBtn: document.getElementById("startBtn"),
+
+    endOverlay: document.getElementById("endOverlay"),
+    finalScore: document.getElementById("finalScore"),
+    top10: document.getElementById("top10"),
+    playAgainBtn: document.getElementById("playAgainBtn"),
   };
 
   // ===== Helpers =====
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const dist2=(ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by;return dx*dx+dy*dy;};
   const rand=(a,b)=>a+Math.random()*(b-a);
+  const randi=(a,b)=>Math.floor(a + Math.random()*(b-a+1));
 
   function loadHighScore(){
     const n = Number(localStorage.getItem(STORAGE_KEY) || "0");
@@ -404,8 +459,15 @@
 
   let NEXT_ID = 1;
 
+  // Prevent first tap after overlays from firing (mobile fallthrough)
+  let ignoreInputUntil = 0;
+  // Drag-to-aim state
+  let aiming = false;
+
   const G = {
     started:false,
+    gameOver:false,
+
     t: 0,
     wave: 1,
     crowns: 0,
@@ -483,7 +545,7 @@
     const thinW = Math.max(28, Math.floor(W*0.022));
     for(const t of G.towers) t.w = thinW;
 
-    // staggered placement (same X spacing you already had)
+    // staggered placement
     G.towers[0].x = Math.floor(W*0.07);
     G.towers[1].x = Math.floor(W*0.13);
     G.towers[2].x = Math.floor(W*0.19);
@@ -597,13 +659,15 @@
 
   // ===== Buttons UI =====
   function setPowerButtonUI(btn, cdEl, ready){
-    btn.classList.toggle("ready", ready);
-    btn.classList.toggle("cooldown", !ready);
-    if(ready) cdEl.textContent = "";
+    const disabled = (!G.started || G.gameOver || aliveArchers()<=0);
+    btn.classList.toggle("disabled", disabled);
+    btn.classList.toggle("ready", ready && !disabled);
+    btn.classList.toggle("cooldown", !ready || disabled);
+    if(ready && !disabled) cdEl.textContent = "";
   }
 
   function setLogButtonUI(){
-    const ready = (G.logCooldown <= 0 && !G.logActive && aliveArchers()>0 && G.started);
+    const ready = (G.logCooldown <= 0 && !G.logActive && aliveArchers()>0 && G.started && !G.gameOver);
     setPowerButtonUI(UI.logBtn, UI.logCd, ready);
     if(!ready){
       const sec = Math.ceil(G.logCooldown);
@@ -612,7 +676,7 @@
   }
 
   function setOilButtonUI(){
-    const ready = (G.oilCooldown <= 0 && !G.oilActive && aliveArchers()>0 && G.started);
+    const ready = (G.oilCooldown <= 0 && !G.oilActive && aliveArchers()>0 && G.started && !G.gameOver);
     setPowerButtonUI(UI.oilBtn, UI.oilCd, ready);
     if(!ready){
       const sec = Math.ceil(G.oilCooldown);
@@ -621,7 +685,7 @@
   }
 
   function setRockButtonUI(){
-    const ready = (G.rockCooldown <= 0 && aliveArchers()>0 && G.started);
+    const ready = (G.rockCooldown <= 0 && aliveArchers()>0 && G.started && !G.gameOver);
     setPowerButtonUI(UI.rockBtn, UI.rockCd, ready);
     if(!ready){
       const sec = Math.ceil(G.rockCooldown);
@@ -633,6 +697,7 @@
     G.t = 0;
     G.wave = 1;
     G.crowns = 0;
+    G.gameOver = false;
 
     G.enemies.length = 0;
     G.arrows.length = 0;
@@ -683,6 +748,38 @@
     setLogButtonUI();
     setOilButtonUI();
     setRockButtonUI();
+
+    UI.endOverlay.style.display = "none";
+  }
+
+  // ===== End Screen Top 10 =====
+  function showEndScreen(){
+    G.gameOver = true;
+
+    UI.finalScore.textContent = String(G.crowns);
+
+    // Build top10: player + 9 random scores between 500 and 1000
+    const scores = [];
+    for(let i=0;i<9;i++) scores.push({ score: randi(500,1000), me:false });
+    scores.push({ score: G.crowns, me:true });
+
+    scores.sort((a,b)=>b.score-a.score);
+
+    UI.top10.innerHTML = "";
+    scores.slice(0,10).forEach((s, idx)=>{
+      const li = document.createElement("li");
+      if(s.me) li.classList.add("me");
+      const left = document.createElement("span");
+      left.textContent = `${idx+1}. ${s.me ? "YOU" : "CPU"}`;
+      const right = document.createElement("span");
+      right.textContent = String(s.score);
+      li.appendChild(left);
+      li.appendChild(right);
+      UI.top10.appendChild(li);
+    });
+
+    UI.endOverlay.style.display = "flex";
+    ignoreInputUntil = performance.now() + 200; // avoid immediate volley on close/tap
   }
 
   // ===== Gear (more realistic armor overlay) =====
@@ -1026,7 +1123,7 @@
   }
 
   function fireVolley(){
-    if(!G.started) return;
+    if(!G.started || G.gameOver) return;
     if(aliveArchers()<=0) return;
 
     beginVolley();
@@ -1157,7 +1254,7 @@
 
   // ===== Powers =====
   function activateLog(){
-    if(!G.started) return;
+    if(!G.started || G.gameOver) return;
     if(G.logCooldown > 0 || G.logActive) return;
     if(aliveArchers()<=0) return;
 
@@ -1190,7 +1287,7 @@
   }
 
   function activateOil(){
-    if(!G.started) return;
+    if(!G.started || G.gameOver) return;
     if(G.oilCooldown > 0 || G.oilActive) return;
     if(aliveArchers()>0){
       const t = rightmostAliveTower();
@@ -1229,7 +1326,7 @@
 
   // Rocks ability (30s cooldown)
   function activateRocks(){
-    if(!G.started) return;
+    if(!G.started || G.gameOver) return;
     if(G.rockCooldown > 0) return;
     if(aliveArchers()<=0) return;
 
@@ -1416,6 +1513,19 @@
   function update(dt){
     layout();
 
+    // If game over, keep cooldown UI consistent but stop gameplay updates
+    if(G.gameOver){
+      updateLog(dt);
+      updateOil(dt);
+      updateRocks(dt);
+      for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
+      if(G.volleyActive){
+        G.volleyResolveT += dt;
+        resolveVolleyIfReady();
+      }
+      return;
+    }
+
     // shake decay
     if(G.shakeT > 0){
       G.shakeT = Math.max(0, G.shakeT - dt);
@@ -1579,10 +1689,15 @@
       G.waveClearT = 0;
     }
 
-    if(G.started && aliveArchers()<=0 && G.crowns > G.highScore){
-      G.highScore = G.crowns;
-      UI.high.textContent = String(G.highScore);
-      saveHighScore(G.highScore);
+    // GAME OVER CHECK
+    if(G.started && aliveArchers()<=0 && !G.gameOver){
+      // ensure high score is saved if needed
+      if(G.crowns > G.highScore){
+        G.highScore = G.crowns;
+        UI.high.textContent = String(G.highScore);
+        saveHighScore(G.highScore);
+      }
+      showEndScreen();
     }
   }
 
@@ -1627,7 +1742,7 @@
       }
     }
 
-    // archers (person + bow)
+    // archers
     for(const a of G.archers){
       const p = archerPos(a);
       drawArcherOnTower(p.x, p.y+8, a.alive);
@@ -1676,7 +1791,7 @@
       ctx.restore();
     }
 
-    // stuck arrows (5s)
+    // stuck arrows
     for(const sa of G.stuckArrows){
       const a = clamp(sa.life/5, 0, 1);
       ctx.globalAlpha = 0.35 + 0.65*a;
@@ -1765,15 +1880,35 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
+  // Tap/Click fires volley; Drag adjusts aim
   canvas.addEventListener("pointerdown", (ev)=>{
-    if(!G.started) return;
+    if(performance.now() < ignoreInputUntil) return;
+    if(!G.started || G.gameOver) return;
     ev.preventDefault();
+    aiming = true;
+    try{ canvas.setPointerCapture(ev.pointerId); }catch(_){}
     const {x,y} = canvasXY(ev);
     G.aimX = x;
     G.aimY = y;
     G.aimActive = true;
     fireVolley();
   }, {passive:false});
+
+  canvas.addEventListener("pointermove", (ev)=>{
+    if(!G.started || G.gameOver || !aiming) return;
+    const {x,y} = canvasXY(ev);
+    G.aimX = x;
+    G.aimY = y;
+    G.aimActive = true;
+  }, {passive:true});
+
+  canvas.addEventListener("pointerup", ()=>{
+    aiming = false;
+  }, {passive:true});
+
+  canvas.addEventListener("pointercancel", ()=>{
+    aiming = false;
+  }, {passive:true});
 
   UI.logBtn.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault(); ev.stopPropagation();
@@ -1795,6 +1930,18 @@
     reset();
   });
 
+  // Keyboard support (desktop)
+  addEventListener("keydown", (e)=>{
+    if(!G.started || G.gameOver) return;
+    if(e.code==="Space" || e.code==="Enter"){
+      e.preventDefault();
+      fireVolley();
+    }
+    if(e.key==="1") activateLog();
+    if(e.key==="2") activateOil();
+    if(e.key==="3") activateRocks();
+  }, {passive:false});
+
   // Start overlay (unlocks audio)
   function startGame(){
     ensureAudio();
@@ -1803,12 +1950,23 @@
     }
     G.started = true;
     UI.overlay.style.display = "none";
+    ignoreInputUntil = performance.now() + 150; // prevent immediate volley from overlay tap
     reset();
   }
   UI.startBtn.addEventListener("click", startGame);
   UI.overlay.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault();
     startGame();
+  }, {passive:false});
+
+  // End overlay buttons
+  UI.playAgainBtn.addEventListener("click", ()=>{
+    ignoreInputUntil = performance.now() + 150;
+    reset();
+  });
+  UI.endOverlay.addEventListener("pointerdown", (ev)=>{
+    // allow tapping the overlay background to NOT accidentally fire a volley
+    ev.preventDefault();
   }, {passive:false});
 
   // ===== Frame loop =====
