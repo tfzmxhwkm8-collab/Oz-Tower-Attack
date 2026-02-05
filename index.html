@@ -865,7 +865,6 @@
     G.volleys.push({
       id: volleyId,
       hits: [false,false,false],
-      resolveT: 0,
       deaths: []
     });
     return volleyId;
@@ -926,17 +925,13 @@
     }
   }
 
-  function resolveVolleys(dt){
+  function resolveVolleys(){
     if(G.volleys.length === 0) return;
-
-    for(const volley of G.volleys){
-      volley.resolveT += dt;
-    }
 
     while(G.volleys.length > 0){
       const volley = G.volleys[0];
       const arrowsAlive = G.arrows.some(a => a.alive && a.volleyId === volley.id);
-      if(arrowsAlive && volley.resolveT < 0.95) break;
+      if(arrowsAlive) break;
       resolveVolley(volley);
       G.volleys.shift();
     }
@@ -1419,7 +1414,7 @@
     }
     G.crownPops = G.crownPops.filter(c=>c.life>0);
 
-    resolveVolleys(dt);
+    resolveVolleys();
 
     // cleanup dead enemies (prevents performance slowdown)
     G.enemies = G.enemies.filter(e => e.state !== "dead");
