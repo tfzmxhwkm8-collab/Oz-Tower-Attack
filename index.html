@@ -430,8 +430,11 @@
     nextSpawn: 0,
     waveClearT: 0,
 
+    volleyActive: false,
     volleyId: 0,
-    volleys: [],
+    volleyHits: [false,false,false],
+    volleyResolveT: 0,
+    volleyDeaths: [],
 
     threeHitStreak: 0,
     dmgMult: 1.0,
@@ -638,8 +641,11 @@
     G.particles.length = 0;
     G.crownPops.length = 0;
 
+    G.volleyActive = false;
     G.volleyId = 0;
-    G.volleys.length = 0;
+    G.volleyHits = [false,false,false];
+    G.volleyResolveT = 0;
+    G.volleyDeaths = [];
 
     G.threeHitStreak = 0;
     G.dmgMult = 1.0;
@@ -718,125 +724,276 @@
     ctx.fill();
 
     ctx.strokeStyle = "rgba(255,255,255,.14)";
-    ctx.lineWidth = 1.5*scale;
+    ctx.lineWidth = 2*scale;
+    ctx.beginPath();
+    ctx.moveTo(0, -1*scale);
+    ctx.lineTo(0, 15*scale);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(0,0,0,.28)";
+    ctx.lineWidth = 2*scale;
     ctx.beginPath();
     ctx.roundRect(-9*scale, -2*scale, 18*scale, 18*scale, 6*scale);
     ctx.stroke();
+
+    ctx.strokeStyle = "#3b2a16";
+    ctx.lineWidth = 2*scale;
+    ctx.beginPath();
+    ctx.moveTo(-10*scale, 2*scale);
+    ctx.lineTo(-2*scale, 7*scale);
+    ctx.moveTo(10*scale, 2*scale);
+    ctx.lineTo(2*scale, 7*scale);
+    ctx.stroke();
+
     ctx.restore();
   }
 
   function drawShield(x,y,scale){
-    ctx.save();
-    ctx.translate(x,y);
-    ctx.fillStyle = "#b7beca";
-    ctx.beginPath();
-    ctx.roundRect(-7*scale, -9*scale, 14*scale, 18*scale, 4*scale);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(0,0,0,.35)";
-    ctx.lineWidth = 1.6*scale;
-    ctx.stroke();
+    const r = 7*scale;
+    ctx.fillStyle = "#6b4a10";
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#c7a24b";
+    ctx.beginPath(); ctx.arc(x,y,r*0.72,0,Math.PI*2); ctx.fill();
     ctx.fillStyle = "rgba(0,0,0,.18)";
-    ctx.fillRect(-1*scale, -8*scale, 2*scale, 16*scale);
-    ctx.restore();
+    ctx.fillRect(x-1*scale, y-r*0.6, 2*scale, r*1.2);
+    ctx.fillStyle = "#cfd6e6";
+    ctx.beginPath(); ctx.arc(x,y,1.5*scale,0,Math.PI*2); ctx.fill();
   }
 
-  function drawStickManWithGear(e){
-    const sc = e.scale || 1;
-    const x = e.x, y = e.y;
+  function drawSpearFromHand(handX, handY, scale, attacking){
+    const shaftLen = 34*scale;
+    const tilt = attacking ? -0.28 : -0.18;
+    const tipX = handX + Math.cos(tilt)*shaftLen;
+    const tipY = handY + Math.sin(tilt)*shaftLen;
 
-    const bob = (e.state==="alive") ? Math.sin(e.stepT)*2 : 0;
-    const fall = (e.state==="dying") ? (e.fallA*1.2) : 0;
-    const rot = (e.state==="dying") ? (e.fallA * e.fallDir * 0.5) : 0;
+    ctx.strokeStyle = "#5a3b18";
+    ctx.lineWidth = 3*scale;
+    ctx.beginPath();
+    ctx.moveTo(handX, handY);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    ctx.fillStyle = "#c0c6d3";
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX-10*scale, tipY-4*scale);
+    ctx.lineTo(tipX-10*scale, tipY+4*scale);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(0,0,0,.20)";
+    ctx.beginPath();
+    ctx.arc(handX, handY, 1.6*scale, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // ===== Enemy drawing with fall-flat death =====
+  function drawStickManWithGear(e){
+    const scale = e.scale || 1.0;
+    const baseX = e.x;
+    const baseY = e.y;
+
+    const step = Math.sin(e.stepT) * 1.0;
+    const armSwing = Math.sin(e.stepT) * (e.state==="alive" ? 1 : 0.2);
+
+    const dying = (e.state==="dying");
+    const alpha = dying ? e.fade : 1;
+
+    // Only fall to ~90deg (flat), not a full spin
+    const rot = dying ? (e.fallA * (Math.PI/2) * e.fallDir) : 0;
 
     ctx.save();
-    ctx.translate(x, y);
+    ctx.translate(baseX, baseY);
     ctx.rotate(rot);
+    ctx.globalAlpha = alpha;
 
-    // shadow
-    ctx.fillStyle = "rgba(0,0,0,.18)";
-    ctx.beginPath();
-    ctx.ellipse(0, 6, 14*sc, 6*sc, 0, 0, Math.PI*2);
-    ctx.fill();
+    const headR = 5*scale;
+    const body = 14*scale;
 
-    // torso
-    ctx.strokeStyle = "#333";
-    ctx.lineWidth = 3*sc;
-    ctx.beginPath();
-    ctx.moveTo(0, -25*sc + bob);
-    ctx.lineTo(0, -8*sc + bob);
-    ctx.stroke();
+    const torsoTopY = - (body + 14*scale);
+    const headY = torsoTopY - headR - 2*scale;
+    const neckY = torsoTopY + 2*scale;
+    const torsoBottomY = torsoTopY + body;
+
+    const armY = neckY + 5*scale;
+    const armOut = 10*scale;
+    const armDown = (e.attack ? 2*scale : 6*scale);
+
+    // hit-stun reduces bob/swing
+    const stunned = (e.stunT > 0 && e.state==="alive");
+    const bob = (!stunned && e.state==="alive" && !e.attack) ? (step * 1.6*scale) : 0;
+    const swingScale = stunned ? 0.15 : 1.0;
+
+    ctx.translate(0, bob);
+
+    ctx.strokeStyle = "#151515";
+    ctx.lineWidth = Math.max(2, 2*scale*0.75);
 
     // head
-    ctx.fillStyle = "#d9d1c6";
     ctx.beginPath();
-    ctx.arc(0, -34*sc + bob, 6*sc, 0, Math.PI*2);
-    ctx.fill();
+    ctx.arc(0, headY, headR, 0, Math.PI*2);
+    ctx.stroke();
+
+    if(e.type === "soldier" || e.type === "shield" || e.type === "brute"){
+      drawHelmet(0, headY, 0.9*scale);
+    }
+
+    // torso
+    ctx.beginPath();
+    ctx.moveTo(0, neckY);
+    ctx.lineTo(0, torsoBottomY);
+    ctx.stroke();
 
     // arms
-    ctx.strokeStyle = "#333";
-    ctx.lineWidth = 3*sc;
+    const leftHandX  = -armOut;
+    const leftHandY  = armY + armDown + armSwing*1.2*scale*swingScale;
+    const rightHandX =  armOut;
+    const rightHandY = armY + armDown - armSwing*1.2*scale*swingScale;
+
     ctx.beginPath();
-    ctx.moveTo(0, -18*sc + bob);
-    ctx.lineTo(10*sc, -12*sc + bob);
-    ctx.moveTo(0, -18*sc + bob);
-    ctx.lineTo(-10*sc, -12*sc + bob);
+    ctx.moveTo(0, armY);
+    ctx.lineTo(leftHandX, leftHandY);
+    ctx.moveTo(0, armY);
+    ctx.lineTo(rightHandX, rightHandY);
     ctx.stroke();
 
-    // legs
-    ctx.beginPath();
-    ctx.moveTo(0, -8*sc + bob);
-    ctx.lineTo(8*sc, 6*sc + bob);
-    ctx.moveTo(0, -8*sc + bob);
-    ctx.lineTo(-8*sc, 6*sc + bob);
-    ctx.stroke();
+    // armor overlay
+    if(e.type === "soldier" || e.type === "shield" || e.type === "brute"){
+      drawBreastplate(0, neckY+2*scale, 0.75*scale);
+    }
 
     // gear
-    drawHelmet(0, -40*sc + bob, sc*0.9);
-    drawBreastplate(0, -22*sc + bob, sc*0.9);
-    if(e.type === "shield"){
-      drawShield(12*sc, -16*sc + bob, sc*0.9);
+    if(e.type === "soldier" || e.type === "shield"){
+      drawShield(-16*scale, armY+5*scale, 0.95*scale);
     }
+    if(e.type === "brute"){
+      drawSpearFromHand(rightHandX, rightHandY, 0.65*scale, e.attack);
+    }
+
+    // legs
+    const legOut = 8*scale;
+    const legDown = 12*scale;
+    const legSwing = (e.state==="alive" && !e.attack && !stunned) ? (step * 4*scale) : (step * 1.0*scale);
+
+    ctx.beginPath();
+    ctx.moveTo(0, torsoBottomY);
+    ctx.lineTo(-legOut, torsoBottomY + legDown + legSwing);
+    ctx.moveTo(0, torsoBottomY);
+    ctx.lineTo( legOut, torsoBottomY + legDown - legSwing);
+    ctx.stroke();
 
     ctx.restore();
   }
 
   // ===== Pixel crowns =====
   function drawPixelCrown(x, y, s){
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.fillStyle = "#f6d84c";
-    ctx.beginPath();
-    ctx.moveTo(0, 8*s);
-    ctx.lineTo(0, 3*s);
-    ctx.lineTo(2*s, 1*s);
-    ctx.lineTo(4*s, 4*s);
-    ctx.lineTo(6*s, 0);
-    ctx.lineTo(8*s, 4*s);
-    ctx.lineTo(10*s, 1*s);
-    ctx.lineTo(12*s, 3*s);
-    ctx.lineTo(12*s, 8*s);
-    ctx.closePath();
-    ctx.fill();
+    const px = s;
+    ctx.fillStyle = "#6b4a10";
+    ctx.fillRect(x + 0*px, y + 4*px, 9*px, 3*px);
+    ctx.fillRect(x + 0*px, y + 2*px, 2*px, 2*px);
+    ctx.fillRect(x + 3*px, y + 1*px, 3*px, 3*px);
+    ctx.fillRect(x + 7*px, y + 2*px, 2*px, 2*px);
 
-    ctx.fillStyle = "#eab308";
-    ctx.fillRect(0, 6*s, 12*s, 2*s);
-    ctx.restore();
+    ctx.fillStyle = "#f2c34b";
+    ctx.fillRect(x + 1*px, y + 5*px, 7*px, 1*px);
+    ctx.fillRect(x + 1*px, y + 4*px, 7*px, 1*px);
+    ctx.fillRect(x + 4*px, y + 2*px, 1*px, 2*px);
+    ctx.fillRect(x + 3*px, y + 3*px, 3*px, 1*px);
+    ctx.fillRect(x + 1*px, y + 3*px, 1*px, 1*px);
+    ctx.fillRect(x + 7*px, y + 3*px, 1*px, 1*px);
+
+    ctx.fillStyle = "#ff4d6d";
+    ctx.fillRect(x + 4*px, y + 5*px, 1*px, 1*px);
+    ctx.fillStyle = "#3aa0ff";
+    ctx.fillRect(x + 2*px, y + 5*px, 1*px, 1*px);
+    ctx.fillStyle = "#3aff8f";
+    ctx.fillRect(x + 6*px, y + 5*px, 1*px, 1*px);
   }
 
   function drawCrownStack(count, x, y){
-    const s = 1.6;
+    const s = Math.max(2, Math.floor(Math.min(innerWidth, innerHeight) / 220));
     const crownW = 9*s;
-    const gap = 2*s;
+    const gap = 3*s;
     const totalW = count*crownW + (count-1)*gap;
-    const startX = x - totalW/2;
-
+    let startX = x - totalW/2;
     for(let i=0;i<count;i++){
       drawPixelCrown(startX + i*(crownW+gap), y, s);
     }
   }
 
+  // ===== Archer (person with bow) =====
+  function drawArcherOnTower(x, y, alive){
+    ctx.save();
+    ctx.translate(x, y);
+
+    if(!alive){
+      ctx.strokeStyle = "rgba(190,40,40,.9)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-10,-10); ctx.lineTo(10,10);
+      ctx.moveTo(10,-10); ctx.lineTo(-10,10);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    // head
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, -16, 5, 0, Math.PI*2);
+    ctx.stroke();
+
+    // torso
+    ctx.beginPath();
+    ctx.moveTo(0, -11);
+    ctx.lineTo(0, 2);
+    ctx.stroke();
+
+    // legs
+    ctx.beginPath();
+    ctx.moveTo(0, 2);
+    ctx.lineTo(-6, 12);
+    ctx.moveTo(0, 2);
+    ctx.lineTo(6, 12);
+    ctx.stroke();
+
+    // arms
+    ctx.beginPath();
+    ctx.moveTo(0, -6);
+    ctx.lineTo(-10, 2);
+    ctx.moveTo(0, -6);
+    ctx.lineTo(10, 0);
+    ctx.stroke();
+
+    // bow
+    ctx.strokeStyle = "#b07a2a";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(-12, 2, 10, -Math.PI/2, Math.PI/2);
+    ctx.stroke();
+
+    // string
+    ctx.strokeStyle = "rgba(0,0,0,.35)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-12, -8);
+    ctx.lineTo(-12, 12);
+    ctx.stroke();
+
+    // tiny quiver accent
+    ctx.strokeStyle = "#c79a3a";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(4, -5);
+    ctx.lineTo(10, 6);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
   // ===== Shooting =====
-  function spawnArrow(archerIndex, fromX, fromY, aimX, aimY, volleyId){
+  function spawnArrow(archerIndex, fromX, fromY, aimX, aimY){
     const minAimY = G.groundY - 6;
     const adjAimY = Math.min(aimY, minAimY);
 
@@ -851,7 +1008,7 @@
 
     G.arrows.push({
       archerIndex,
-      volleyId,
+      volleyId: G.volleyId,
       x: fromX, y: fromY,
       vx, vy,
       g: 760,
@@ -861,20 +1018,18 @@
   }
 
   function beginVolley(){
-    const volleyId = ++G.volleyId;
-    G.volleys.push({
-      id: volleyId,
-      hits: [false,false,false],
-      deaths: []
-    });
-    return volleyId;
+    G.volleyActive = true;
+    G.volleyId++;
+    G.volleyHits = [false,false,false];
+    G.volleyResolveT = 0;
+    G.volleyDeaths = [];
   }
 
   function fireVolley(){
     if(!G.started) return;
     if(aliveArchers()<=0) return;
 
-    const volleyId = beginVolley();
+    beginVolley();
     let shotAny = false;
 
     for(let i=0;i<G.archers.length;i++){
@@ -884,7 +1039,7 @@
 
       const p = archerPos(a);
       const spread = (i-1) * 10;
-      spawnArrow(i, p.x, p.y, G.aimX, G.aimY + spread, volleyId);
+      spawnArrow(i, p.x, p.y, G.aimX, G.aimY + spread);
 
       a.cooldown = 0.55;
       shotAny = true;
@@ -893,11 +1048,16 @@
     if(shotAny) sfxShoot();
   }
 
-  function resolveVolley(volley){
+  function resolveVolleyIfReady(){
+    if(!G.volleyActive) return;
+
+    const arrowsAlive = G.arrows.some(a => a.alive && a.volleyId === G.volleyId);
+    if(arrowsAlive && G.volleyResolveT < 0.95) return;
+
     const hitCount =
-      (volley.hits[0]?1:0) +
-      (volley.hits[1]?1:0) +
-      (volley.hits[2]?1:0);
+      (G.volleyHits[0]?1:0) +
+      (G.volleyHits[1]?1:0) +
+      (G.volleyHits[2]?1:0);
 
     if(hitCount === 3) G.threeHitStreak++;
     else G.threeHitStreak = 0;
@@ -919,22 +1079,14 @@
     }
 
     if(hitCount > 0){
-      for(const d of volley.deaths){
+      for(const d of G.volleyDeaths){
         G.crownPops.push({ x: d.x, y: d.y - 95, count: hitCount, life: 1.05 });
       }
     }
-  }
 
-  function resolveVolleys(){
-    if(G.volleys.length === 0) return;
-
-    while(G.volleys.length > 0){
-      const volley = G.volleys[0];
-      const arrowsAlive = G.arrows.some(a => a.alive && a.volleyId === volley.id);
-      if(arrowsAlive) break;
-      resolveVolley(volley);
-      G.volleys.shift();
-    }
+    G.volleyActive = false;
+    G.volleyResolveT = 0;
+    G.volleyDeaths = [];
   }
 
   // ===== Tower damage =====
@@ -972,7 +1124,7 @@
     }
   }
 
-  function startEnemyDeath(e, instant=false, volleyId=null){
+  function startEnemyDeath(e, instant=false){
     if(e.state!=="alive") return;
     e.state = "dying";
     e.attack = false;
@@ -981,10 +1133,7 @@
     e.deathDur = instant ? 0.55 : 0.80;
     e.fallA = 0;
 
-    if(volleyId != null){
-      const volley = G.volleys.find(v => v.id === volleyId);
-      if(volley) volley.deaths.push({ x: e.x, y: e.y });
-    }
+    if(G.volleyActive) G.volleyDeaths.push({ x: e.x, y: e.y });
 
     bloodBurst(e.x, e.y-28*(e.scale||1), 0.7);
     sfxDie();
@@ -996,13 +1145,13 @@
     startEnemyDeath(e, true);
   }
 
-  function damageEnemy(e, amount, volleyId=null){
+  function damageEnemy(e, amount){
     if(e.state!=="alive") return;
     e.stunT = Math.max(e.stunT, 0.10); // hit-stun
     e.hp -= amount;
     sfxHit();
     if(e.hp <= 0){
-      startEnemyDeath(e, false, volleyId);
+      startEnemyDeath(e, false);
     }
   }
 
@@ -1379,14 +1528,13 @@
           const blocked = (T.block && Math.random() < T.block);
 
           if(!blocked){
-            const volley = G.volleys.find(v => v.id === ar.volleyId);
-            if(volley){
-              volley.hits[ar.archerIndex] = true;
+            if(G.volleyActive && ar.volleyId === G.volleyId){
+              G.volleyHits[ar.archerIndex] = true;
             }
 
             const baseDmg = (26 + (G.wave-1)*1.7) * G.dmgMult;
             const dr = (T.dr != null) ? T.dr : 1.0;
-            damageEnemy(e, baseDmg * dr, ar.volleyId);
+            damageEnemy(e, baseDmg * dr);
           }
           break;
         }
@@ -1414,7 +1562,10 @@
     }
     G.crownPops = G.crownPops.filter(c=>c.life>0);
 
-    resolveVolleys();
+    if(G.volleyActive){
+      G.volleyResolveT += dt;
+      resolveVolleyIfReady();
+    }
 
     // cleanup dead enemies (prevents performance slowdown)
     G.enemies = G.enemies.filter(e => e.state !== "dead");
