@@ -1216,9 +1216,7 @@ function drawArcherOnTower(x, y, archer){
 // arrow appears during draw + release, disappears while reloading
 const showArrow =
   (archer.animState === "draw" ||
-   archer.animState === "release" ||
-   archer.animState === "idle" ||
-   !archer.animState); // fallback if not set yet
+   archer.animState === "release");
 
 if(showArrow){
   const arrowY = drawHandY2 + 1;
