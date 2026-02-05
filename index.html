@@ -20,12 +20,10 @@
     border-radius:12px;
     backdrop-filter: blur(6px);
 
-    /* thinner */
     padding:6px 10px;
     font-size:12px;
     line-height:1.05;
 
-    /* prevent big blocking rectangle */
     max-width: calc(100vw - 16px);
 
     padding-top: calc(6px + env(safe-area-inset-top));
@@ -46,16 +44,29 @@
     align-items:center;
     gap:10px;
     min-width:0;
+    flex:1 1 auto;
   }
 
+  /* IMPORTANT: Keep Wave/Crowns always visible; allow the rest to ellipsis */
   .statsLine{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-width:0;
+    flex:1 1 auto;
+  }
+  .statsPrimary{
+    white-space:nowrap;
+    flex:0 0 auto;
+  }
+  .statsSecondary{
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
-    max-width: 72vw; /* leaves room for powers on the right */
+    flex:1 1 auto;
+    opacity:.95;
   }
 
-  /* smaller restart button */
   .btn{
     display:inline-flex;
     align-items:center;
@@ -71,7 +82,6 @@
     flex:0 0 auto;
   }
 
-  /* Powers become a horizontal stack (right side) */
   .powerStack{
     display:flex;
     flex-direction:row;
@@ -162,7 +172,7 @@
     background:rgba(255,255,255,.20);
   }
 
-  /* Start overlay */
+  /* Start / End overlays */
   .overlay{
     position:fixed;inset:0;z-index:20;
     display:flex;align-items:center;justify-content:center;
@@ -215,12 +225,14 @@
   }
   .hint{font-size:12px;opacity:.85;margin:0 0 12px}
 
-  /* extra: on very small landscape screens, shrink text slightly */
+  /* iPhone landscape: ensure score stays visible by allowing row wrap if needed */
   @media (max-height: 420px) and (orientation: landscape){
     .hud{ font-size:11px; padding:5px 8px; }
+    .row{ flex-wrap:wrap; align-items:flex-start; }
+    .leftcol{ width:100%; }
+    .powerStack{ width:100%; justify-content:flex-start; }
     .powerBtn{ width:34px; height:34px; }
     .btn{ padding:4px 8px; font-size:11px; }
-    .statsLine{ max-width: 66vw; }
   }
 </style>
 </head>
@@ -231,15 +243,19 @@
   <div class="row">
     <div class="leftcol">
       <div class="statsLine">
-        <b>Wave:</b> <span id="wave">1</span>
-        &nbsp; | &nbsp;
-        <b>Crowns:</b> <span id="crowns">0</span>
-        &nbsp; | &nbsp;
-        <b>High:</b> <span id="high">0</span>
-        &nbsp; | &nbsp;
-        <b>DMG:</b> <span id="dmg">x1.0</span>
-        &nbsp; | &nbsp;
-        <b>Streak:</b> <span id="streak">0</span>
+        <div class="statsPrimary">
+          <b>Wave:</b> <span id="wave">1</span>
+          &nbsp; | &nbsp;
+          <b>Crowns:</b> <span id="crowns">0</span>
+        </div>
+        <div class="statsSecondary">
+          &nbsp; | &nbsp;
+          <b>High:</b> <span id="high">0</span>
+          &nbsp; | &nbsp;
+          <b>DMG:</b> <span id="dmg">x1.0</span>
+          &nbsp; | &nbsp;
+          <b>Streak:</b> <span id="streak">0</span>
+        </div>
       </div>
 
       <div class="btn" id="restart">Restart</div>
@@ -308,6 +324,10 @@
 (() => {
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d", { alpha:false });
+  if(!ctx){
+    alert("Canvas 2D context not available in this browser.");
+    return;
+  }
 
   const STORAGE_KEY = "oz_tower_attack_highscore_v1";
 
@@ -340,8 +360,12 @@
   const randi=(a,b)=>Math.floor(a + Math.random()*(b-a+1));
 
   function loadHighScore(){
-    const n = Number(localStorage.getItem(STORAGE_KEY) || "0");
-    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+    try{
+      const n = Number(localStorage.getItem(STORAGE_KEY) || "0");
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+    }catch(_){
+      return 0;
+    }
   }
   function saveHighScore(n){
     try{ localStorage.setItem(STORAGE_KEY, String(Math.max(0, Math.floor(n)))); }catch(_){}
@@ -457,6 +481,20 @@
     brute:  { name:"Brute",  hpMul:1.90, spdMul:0.72, dmgMul:1.25, r:18 },
   };
 
+  // Random leaderboard names (instead of "CPU")
+  const NAMES = [
+    "Rhett","Oz","Nova","Maverick","Luna","Atlas","Kai","Sage","Jett","Skye",
+    "Harper","Nico","Quinn","Blaze","Indy","Rowan","Avery","Zane","Ivy","Milo",
+    "Phoenix","Echo","Rogue","Aria","Wade","Remy","Cleo","Gage","Violet","Bryn"
+  ];
+  function pickName(used){
+    for(let tries=0;tries<30;tries++){
+      const n = NAMES[randi(0, NAMES.length-1)];
+      if(!used.has(n)) return n;
+    }
+    return "Rival";
+  }
+
   let NEXT_ID = 1;
 
   // Prevent first tap after overlays from firing (mobile fallthrough)
@@ -482,8 +520,8 @@
 
     enemies: [],
     arrows: [],
-    stuckArrows: [], // missed arrows stay ~5s
-    rocks: [],       // rock projectiles
+    stuckArrows: [],
+    rocks: [],
     particles: [],
     crownPops: [],
 
@@ -492,11 +530,11 @@
     nextSpawn: 0,
     waveClearT: 0,
 
-    volleyActive: false,
+    // === FIX for rapid-fire crown glitch:
+    // Track multiple volleys concurrently instead of overwriting a single "active volley".
     volleyId: 0,
-    volleyHits: [false,false,false],
-    volleyResolveT: 0,
-    volleyDeaths: [],
+    volleyQueue: [],            // [id, id, ...] in creation order
+    volleys: new Map(),         // id -> { hits:[bool,bool,bool], deaths:[], age:number }
 
     threeHitStreak: 0,
     dmgMult: 1.0,
@@ -541,20 +579,17 @@
     G.groundY = Math.floor(H*0.82);
     G.laneY = G.groundY;
 
-    // thinner towers
     const thinW = Math.max(28, Math.floor(W*0.022));
     for(const t of G.towers) t.w = thinW;
 
-    // staggered placement
     G.towers[0].x = Math.floor(W*0.07);
     G.towers[1].x = Math.floor(W*0.13);
     G.towers[2].x = Math.floor(W*0.19);
 
-    // bases stay on ground; heights are staggered via maxH (visual only; HP unchanged)
     for(const t of G.towers) t.baseY = G.groundY;
-    G.towers[0].maxH = 255; // tallest
-    G.towers[1].maxH = 205; // lower
-    G.towers[2].maxH = 165; // lowest
+    G.towers[0].maxH = 255;
+    G.towers[1].maxH = 205;
+    G.towers[2].maxH = 165;
 
     G.logY = G.groundY - 10;
     G.oilY = G.groundY - 2;
@@ -630,10 +665,8 @@
 
       stepT: rand(0, 6.28),
 
-      // hit-stun
       stunT: 0,
 
-      // death fall-flat (not full spin)
       deathT: 0,
       deathDur: 0.80,
       fallA: 0,
@@ -706,11 +739,10 @@
     G.particles.length = 0;
     G.crownPops.length = 0;
 
-    G.volleyActive = false;
+    // Volleys
     G.volleyId = 0;
-    G.volleyHits = [false,false,false];
-    G.volleyResolveT = 0;
-    G.volleyDeaths = [];
+    G.volleyQueue = [];
+    G.volleys.clear();
 
     G.threeHitStreak = 0;
     G.dmgMult = 1.0;
@@ -758,10 +790,16 @@
 
     UI.finalScore.textContent = String(G.crowns);
 
-    // Build top10: player + 9 random scores between 500 and 1000
+    // Build top10: player + 9 random scores between 500 and 1000 + random names
+    const used = new Set(["YOU"]);
     const scores = [];
-    for(let i=0;i<9;i++) scores.push({ score: randi(500,1000), me:false });
-    scores.push({ score: G.crowns, me:true });
+
+    for(let i=0;i<9;i++){
+      const nm = pickName(used);
+      used.add(nm);
+      scores.push({ score: randi(500,1000), me:false, name:nm });
+    }
+    scores.push({ score: G.crowns, me:true, name:"YOU" });
 
     scores.sort((a,b)=>b.score-a.score);
 
@@ -770,7 +808,7 @@
       const li = document.createElement("li");
       if(s.me) li.classList.add("me");
       const left = document.createElement("span");
-      left.textContent = `${idx+1}. ${s.me ? "YOU" : "CPU"}`;
+      left.textContent = `${idx+1}. ${s.name}`;
       const right = document.createElement("span");
       right.textContent = String(s.score);
       li.appendChild(left);
@@ -779,10 +817,10 @@
     });
 
     UI.endOverlay.style.display = "flex";
-    ignoreInputUntil = performance.now() + 200; // avoid immediate volley on close/tap
+    ignoreInputUntil = performance.now() + 200;
   }
 
-  // ===== Gear (more realistic armor overlay) =====
+  // ===== Gear =====
   function drawHelmet(x,y,scale){
     ctx.save();
     ctx.translate(x,y);
@@ -884,7 +922,6 @@
     ctx.fill();
   }
 
-  // ===== Enemy drawing with fall-flat death =====
   function drawStickManWithGear(e){
     const scale = e.scale || 1.0;
     const baseX = e.x;
@@ -895,8 +932,6 @@
 
     const dying = (e.state==="dying");
     const alpha = dying ? e.fade : 1;
-
-    // Only fall to ~90deg (flat), not a full spin
     const rot = dying ? (e.fallA * (Math.PI/2) * e.fallDir) : 0;
 
     ctx.save();
@@ -916,7 +951,6 @@
     const armOut = 10*scale;
     const armDown = (e.attack ? 2*scale : 6*scale);
 
-    // hit-stun reduces bob/swing
     const stunned = (e.stunT > 0 && e.state==="alive");
     const bob = (!stunned && e.state==="alive" && !e.attack) ? (step * 1.6*scale) : 0;
     const swingScale = stunned ? 0.15 : 1.0;
@@ -926,7 +960,6 @@
     ctx.strokeStyle = "#151515";
     ctx.lineWidth = Math.max(2, 2*scale*0.75);
 
-    // head
     ctx.beginPath();
     ctx.arc(0, headY, headR, 0, Math.PI*2);
     ctx.stroke();
@@ -935,13 +968,11 @@
       drawHelmet(0, headY, 0.9*scale);
     }
 
-    // torso
     ctx.beginPath();
     ctx.moveTo(0, neckY);
     ctx.lineTo(0, torsoBottomY);
     ctx.stroke();
 
-    // arms
     const leftHandX  = -armOut;
     const leftHandY  = armY + armDown + armSwing*1.2*scale*swingScale;
     const rightHandX =  armOut;
@@ -954,12 +985,10 @@
     ctx.lineTo(rightHandX, rightHandY);
     ctx.stroke();
 
-    // armor overlay
     if(e.type === "soldier" || e.type === "shield" || e.type === "brute"){
       drawBreastplate(0, neckY+2*scale, 0.75*scale);
     }
 
-    // gear
     if(e.type === "soldier" || e.type === "shield"){
       drawShield(-16*scale, armY+5*scale, 0.95*scale);
     }
@@ -967,7 +996,6 @@
       drawSpearFromHand(rightHandX, rightHandY, 0.65*scale, e.attack);
     }
 
-    // legs
     const legOut = 8*scale;
     const legDown = 12*scale;
     const legSwing = (e.state==="alive" && !e.attack && !stunned) ? (step * 4*scale) : (step * 1.0*scale);
@@ -1018,7 +1046,7 @@
     }
   }
 
-  // ===== Archer (person with bow) =====
+  // ===== Archer =====
   function drawArcherOnTower(x, y, alive){
     ctx.save();
     ctx.translate(x, y);
@@ -1034,20 +1062,17 @@
       return;
     }
 
-    // head
     ctx.strokeStyle = "#111827";
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.arc(0, -16, 5, 0, Math.PI*2);
     ctx.stroke();
 
-    // torso
     ctx.beginPath();
     ctx.moveTo(0, -11);
     ctx.lineTo(0, 2);
     ctx.stroke();
 
-    // legs
     ctx.beginPath();
     ctx.moveTo(0, 2);
     ctx.lineTo(-6, 12);
@@ -1055,7 +1080,6 @@
     ctx.lineTo(6, 12);
     ctx.stroke();
 
-    // arms
     ctx.beginPath();
     ctx.moveTo(0, -6);
     ctx.lineTo(-10, 2);
@@ -1063,14 +1087,12 @@
     ctx.lineTo(10, 0);
     ctx.stroke();
 
-    // bow
     ctx.strokeStyle = "#b07a2a";
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.arc(-12, 2, 10, -Math.PI/2, Math.PI/2);
     ctx.stroke();
 
-    // string
     ctx.strokeStyle = "rgba(0,0,0,.35)";
     ctx.lineWidth = 1.2;
     ctx.beginPath();
@@ -1078,7 +1100,6 @@
     ctx.lineTo(-12, 12);
     ctx.stroke();
 
-    // tiny quiver accent
     ctx.strokeStyle = "#c79a3a";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -1089,8 +1110,16 @@
     ctx.restore();
   }
 
-  // ===== Shooting =====
-  function spawnArrow(archerIndex, fromX, fromY, aimX, aimY){
+  // ===== Shooting (multi-volley fix) =====
+  function beginVolley(){
+    G.volleyId++;
+    const id = G.volleyId;
+    G.volleyQueue.push(id);
+    G.volleys.set(id, { hits:[false,false,false], deaths:[], age:0 });
+    return id;
+  }
+
+  function spawnArrow(archerIndex, fromX, fromY, aimX, aimY, volleyId){
     const minAimY = G.groundY - 6;
     const adjAimY = Math.min(aimY, minAimY);
 
@@ -1105,7 +1134,7 @@
 
     G.arrows.push({
       archerIndex,
-      volleyId: G.volleyId,
+      volleyId,
       x: fromX, y: fromY,
       vx, vy,
       g: 760,
@@ -1114,21 +1143,13 @@
     });
   }
 
-  function beginVolley(){
-    G.volleyActive = true;
-    G.volleyId++;
-    G.volleyHits = [false,false,false];
-    G.volleyResolveT = 0;
-    G.volleyDeaths = [];
-  }
-
   function fireVolley(){
     if(!G.started || G.gameOver) return;
     if(aliveArchers()<=0) return;
 
-    beginVolley();
-    let shotAny = false;
+    const volleyId = beginVolley();
 
+    let shotAny = false;
     for(let i=0;i<G.archers.length;i++){
       const a = G.archers[i];
       if(!a.alive) continue;
@@ -1136,26 +1157,29 @@
 
       const p = archerPos(a);
       const spread = (i-1) * 10;
-      spawnArrow(i, p.x, p.y, G.aimX, G.aimY + spread);
+      spawnArrow(i, p.x, p.y, G.aimX, G.aimY + spread, volleyId);
 
       a.cooldown = 0.55;
       shotAny = true;
     }
 
-    if(shotAny) sfxShoot();
+    // If nobody could shoot (cooldowns), remove the empty volley so it doesn't affect streak
+    if(!shotAny){
+      G.volleys.delete(volleyId);
+      G.volleyQueue.pop();
+      return;
+    }
+
+    sfxShoot();
   }
 
-  function resolveVolleyIfReady(){
-    if(!G.volleyActive) return;
+  function resolveVolley(id){
+    const v = G.volleys.get(id);
+    if(!v) return;
 
-    const arrowsAlive = G.arrows.some(a => a.alive && a.volleyId === G.volleyId);
-    if(arrowsAlive && G.volleyResolveT < 0.95) return;
+    const hitCount = (v.hits[0]?1:0) + (v.hits[1]?1:0) + (v.hits[2]?1:0);
 
-    const hitCount =
-      (G.volleyHits[0]?1:0) +
-      (G.volleyHits[1]?1:0) +
-      (G.volleyHits[2]?1:0);
-
+    // streak & dmg based on resolved (creation-order) volleys
     if(hitCount === 3) G.threeHitStreak++;
     else G.threeHitStreak = 0;
 
@@ -1176,14 +1200,40 @@
     }
 
     if(hitCount > 0){
-      for(const d of G.volleyDeaths){
+      for(const d of v.deaths){
         G.crownPops.push({ x: d.x, y: d.y - 95, count: hitCount, life: 1.05 });
       }
     }
 
-    G.volleyActive = false;
-    G.volleyResolveT = 0;
-    G.volleyDeaths = [];
+    G.volleys.delete(id);
+  }
+
+  function resolveVolleysIfReady(dt){
+    // age all existing volleys
+    for(const [id,v] of G.volleys){
+      v.age += dt;
+    }
+
+    // resolve in creation order (queue front) so streak is consistent
+    while(G.volleyQueue.length){
+      const id = G.volleyQueue[0];
+      const v = G.volleys.get(id);
+      if(!v){
+        G.volleyQueue.shift();
+        continue;
+      }
+
+      const arrowsAlive = G.arrows.some(a => a.alive && a.volleyId === id);
+
+      // ready when all arrows from that volley are done OR it's old enough (failsafe)
+      if(!arrowsAlive || v.age > 2.2){
+        resolveVolley(id);
+        G.volleyQueue.shift();
+        continue;
+      }
+
+      break;
+    }
   }
 
   // ===== Tower damage =====
@@ -1221,7 +1271,7 @@
     }
   }
 
-  function startEnemyDeath(e, instant=false){
+  function startEnemyDeath(e, instant=false, causeVolleyId=null){
     if(e.state!=="alive") return;
     e.state = "dying";
     e.attack = false;
@@ -1230,7 +1280,11 @@
     e.deathDur = instant ? 0.55 : 0.80;
     e.fallA = 0;
 
-    if(G.volleyActive) G.volleyDeaths.push({ x: e.x, y: e.y });
+    // record death position for crown pop tied to the volley that killed
+    if(causeVolleyId != null){
+      const v = G.volleys.get(causeVolleyId);
+      if(v) v.deaths.push({ x: e.x, y: e.y });
+    }
 
     bloodBurst(e.x, e.y-28*(e.scale||1), 0.7);
     sfxDie();
@@ -1239,16 +1293,16 @@
   function killEnemyInstant(e){
     if(e.state==="dead" || e.state==="dying") return;
     e.hp = 0;
-    startEnemyDeath(e, true);
+    startEnemyDeath(e, true, null);
   }
 
-  function damageEnemy(e, amount){
+  function damageEnemy(e, amount, causeVolleyId){
     if(e.state!=="alive") return;
-    e.stunT = Math.max(e.stunT, 0.10); // hit-stun
+    e.stunT = Math.max(e.stunT, 0.10);
     e.hp -= amount;
     sfxHit();
     if(e.hp <= 0){
-      startEnemyDeath(e, false);
+      startEnemyDeath(e, false, causeVolleyId);
     }
   }
 
@@ -1324,7 +1378,6 @@
     setOilButtonUI();
   }
 
-  // Rocks ability (30s cooldown)
   function activateRocks(){
     if(!G.started || G.gameOver) return;
     if(G.rockCooldown > 0) return;
@@ -1395,7 +1448,7 @@
     setRockButtonUI();
   }
 
-  // ===== Background =====
+  // ===== Background & FX =====
   function drawBackground(){
     const W = innerWidth, H = innerHeight;
 
@@ -1405,7 +1458,6 @@
     ctx.fillStyle = g;
     ctx.fillRect(0,0,W,H);
 
-    // hills
     ctx.fillStyle = "#7fb08d";
     ctx.beginPath();
     ctx.moveTo(0, G.groundY-170);
@@ -1428,7 +1480,6 @@
     ctx.closePath();
     ctx.fill();
 
-    // trees
     const treeY = G.groundY - 155;
     ctx.fillStyle = "rgba(22,55,33,.55)";
     for(let i=0;i<36;i++){
@@ -1443,7 +1494,6 @@
       ctx.fillRect(x-2, treeY+h, 4, 10);
     }
 
-    // ground
     ctx.fillStyle = "#5f8f4a";
     ctx.fillRect(0, G.groundY, W, H-G.groundY);
 
@@ -1513,20 +1563,16 @@
   function update(dt){
     layout();
 
-    // If game over, keep cooldown UI consistent but stop gameplay updates
+    // If game over, keep UI consistent but stop gameplay updates
     if(G.gameOver){
       updateLog(dt);
       updateOil(dt);
       updateRocks(dt);
       for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
-      if(G.volleyActive){
-        G.volleyResolveT += dt;
-        resolveVolleyIfReady();
-      }
+      resolveVolleysIfReady(dt);
       return;
     }
 
-    // shake decay
     if(G.shakeT > 0){
       G.shakeT = Math.max(0, G.shakeT - dt);
       if(G.shakeT === 0) G.shakeMag = 0;
@@ -1534,7 +1580,6 @@
 
     for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
 
-    // spawn
     if(G.started && aliveArchers()>0){
       G.nextSpawn -= dt;
       if(G.spawnedThisWave < G.enemiesToSpawn && G.nextSpawn <= 0){
@@ -1552,7 +1597,6 @@
     const t = rightmostAliveTower();
     const stopX = t ? (t.x + t.w/2 + 18) : -9999;
 
-    // enemies
     for(const e of G.enemies){
       if(e.state==="dead") continue;
       e.y = G.groundY;
@@ -1574,7 +1618,6 @@
         continue;
       }
 
-      // hit-stun pauses briefly
       if(e.stunT > 0){
         e.attack = false;
         continue;
@@ -1606,7 +1649,6 @@
       ar.trail.push([ar.x, ar.y]);
       if(ar.trail.length > 10) ar.trail.shift();
 
-      // missed -> stay on ground for 5s
       if(ar.y >= G.groundY - 2){
         ar.alive = false;
         const ang = Math.atan2(ar.vy, ar.vx);
@@ -1638,13 +1680,12 @@
           const blocked = (T.block && Math.random() < T.block);
 
           if(!blocked){
-            if(G.volleyActive && ar.volleyId === G.volleyId){
-              G.volleyHits[ar.archerIndex] = true;
-            }
+            const v = G.volleys.get(ar.volleyId);
+            if(v) v.hits[ar.archerIndex] = true;
 
             const baseDmg = (26 + (G.wave-1)*1.7) * G.dmgMult;
             const dr = (T.dr != null) ? T.dr : 1.0;
-            damageEnemy(e, baseDmg * dr);
+            damageEnemy(e, baseDmg * dr, ar.volleyId);
           }
           break;
         }
@@ -1672,12 +1713,10 @@
     }
     G.crownPops = G.crownPops.filter(c=>c.life>0);
 
-    if(G.volleyActive){
-      G.volleyResolveT += dt;
-      resolveVolleyIfReady();
-    }
+    // Resolve volleys (fixes rapid-fire crown loss)
+    resolveVolleysIfReady(dt);
 
-    // cleanup dead enemies (prevents performance slowdown)
+    // cleanup
     G.enemies = G.enemies.filter(e => e.state !== "dead");
 
     const anyAlive = G.enemies.some(e=>e.state==="alive" || e.state==="dying");
@@ -1689,9 +1728,7 @@
       G.waveClearT = 0;
     }
 
-    // GAME OVER CHECK
     if(G.started && aliveArchers()<=0 && !G.gameOver){
-      // ensure high score is saved if needed
       if(G.crowns > G.highScore){
         G.highScore = G.crowns;
         UI.high.textContent = String(G.highScore);
@@ -1705,7 +1742,6 @@
   function draw(){
     const W = innerWidth, H = innerHeight;
 
-    // screen shake
     let sx = 0, sy = 0;
     if(G.shakeT > 0){
       const k = (G.shakeT / 0.12);
@@ -1880,7 +1916,6 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
-  // Tap/Click fires volley; Drag adjusts aim
   canvas.addEventListener("pointerdown", (ev)=>{
     if(performance.now() < ignoreInputUntil) return;
     if(!G.started || G.gameOver) return;
@@ -1902,13 +1937,8 @@
     G.aimActive = true;
   }, {passive:true});
 
-  canvas.addEventListener("pointerup", ()=>{
-    aiming = false;
-  }, {passive:true});
-
-  canvas.addEventListener("pointercancel", ()=>{
-    aiming = false;
-  }, {passive:true});
+  canvas.addEventListener("pointerup", ()=>{ aiming = false; }, {passive:true});
+  canvas.addEventListener("pointercancel", ()=>{ aiming = false; }, {passive:true});
 
   UI.logBtn.addEventListener("pointerdown", (ev)=>{
     ev.preventDefault(); ev.stopPropagation();
@@ -1930,7 +1960,6 @@
     reset();
   });
 
-  // Keyboard support (desktop)
   addEventListener("keydown", (e)=>{
     if(!G.started || G.gameOver) return;
     if(e.code==="Space" || e.code==="Enter"){
@@ -1942,7 +1971,6 @@
     if(e.key==="3") activateRocks();
   }, {passive:false});
 
-  // Start overlay (unlocks audio)
   function startGame(){
     ensureAudio();
     if(audio.ctx && audio.ctx.state === "suspended"){
@@ -1950,7 +1978,7 @@
     }
     G.started = true;
     UI.overlay.style.display = "none";
-    ignoreInputUntil = performance.now() + 150; // prevent immediate volley from overlay tap
+    ignoreInputUntil = performance.now() + 150;
     reset();
   }
   UI.startBtn.addEventListener("click", startGame);
@@ -1959,13 +1987,11 @@
     startGame();
   }, {passive:false});
 
-  // End overlay buttons
   UI.playAgainBtn.addEventListener("click", ()=>{
     ignoreInputUntil = performance.now() + 150;
     reset();
   });
   UI.endOverlay.addEventListener("pointerdown", (ev)=>{
-    // allow tapping the overlay background to NOT accidentally fire a volley
     ev.preventDefault();
   }, {passive:false});
 
