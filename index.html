@@ -1106,7 +1106,7 @@ function showEndScreen(){
   }
 
   // ===== Archer =====
-function drawArcherOnTower(x, y, archer){
+function drawArcherOnTower(x, y, archer, aimX, aimY){
   const alive = archer.alive;
   ctx.save();
   ctx.translate(x, y);
@@ -1123,18 +1123,14 @@ function drawArcherOnTower(x, y, archer){
   }
 
   ctx.lineCap = "round";
+
   // --- animation helpers ---
   const t = (archer.animState === "idle") ? 0 : archer.anim; // 0..1
-  const phaseDraw    = (archer.animState === "draw")    ? 1 : 0;
-  const phaseRelease = (archer.animState === "release") ? 1 : 0;
-  const phaseReload  = (archer.animState === "reload")  ? 1 : 0;
 
-  // smooth-ish pull amount (0..1)
   const pull = (archer.animState === "draw")    ? Math.min(1, t/0.45)
              : (archer.animState === "release") ? 1 - Math.min(1, (t-0.45)/0.15)
              : 0;
 
-  // reload hand motion (0..1)
   const reload = (archer.animState === "reload") ? Math.min(1, (t-0.60)/0.40) : 0;
 
   // --- proportions ---
@@ -1142,7 +1138,6 @@ function drawArcherOnTower(x, y, archer){
   const shoulderY = -4;
   const hipY = 9;
 
-  // stance
   const legOut = 6;
   const legDown = 12;
 
@@ -1160,7 +1155,7 @@ function drawArcherOnTower(x, y, archer){
   ctx.lineTo(0, hipY);
   ctx.stroke();
 
-  // legs (slight archer stance)
+  // legs
   ctx.beginPath();
   ctx.moveTo(0, hipY);
   ctx.lineTo(-legOut, hipY + legDown);
@@ -1168,27 +1163,49 @@ function drawArcherOnTower(x, y, archer){
   ctx.lineTo( legOut, hipY + legDown - 2);
   ctx.stroke();
 
+  // ------------------------------------------------------------
+  // Rotate bow+arms toward aim
+  // ------------------------------------------------------------
+  // If aimX/aimY are missing, just aim forward-ish
+  const localAx = (Number.isFinite(aimX) ? (aimX - x) : 9999);
+  const localAy = (Number.isFinite(aimY) ? (aimY - y) : shoulderY);
+
+  // angle from shoulder pivot (0, shoulderY) toward aim point
+  let aimAng = Math.atan2(localAy - shoulderY, localAx);
+
+  // allow aiming upward a lot (negative), but not backward
+  // (negative = up; 0 = level; positive = down)
+  aimAng = clamp(aimAng, -1.35, 0.35);
+
+  // soften while idle so he isn’t twitchy
+  if(archer.animState === "idle"){
+    aimAng *= 0.35;
+  }
+
+  ctx.save();
+  ctx.translate(0, shoulderY);
+  ctx.rotate(aimAng);
+  ctx.translate(0, -shoulderY);
+
   // arms + bow
   const bowHandX = 11;
   const bowHandY = shoulderY + 4;
 
-  // draw hand pulls back while drawing, then returns on release
-  const drawHandX = 3 - pull * 7;      // pulls left
+  const drawHandX = 3 - pull * 7;
   const drawHandY = shoulderY + 6 + pull * 1.5;
 
-  // during reload, draw hand dips down/back like grabbing a new arrow
   const reloadDip = reload * 7;
   const reloadBack = reload * 4;
   const drawHandX2 = drawHandX - reloadBack;
   const drawHandY2 = drawHandY + reloadDip;
 
-  // bow arm (straight)
+  // bow arm
   ctx.beginPath();
   ctx.moveTo(0, shoulderY);
   ctx.lineTo(bowHandX, bowHandY);
   ctx.stroke();
 
-  // draw arm (bent)
+  // draw arm
   ctx.beginPath();
   ctx.moveTo(0, shoulderY);
   ctx.lineTo(drawHandX2, drawHandY2);
@@ -1212,44 +1229,41 @@ function drawArcherOnTower(x, y, archer){
   ctx.lineTo(bowHandX - 2, bowHandY + bowR);
   ctx.stroke();
 
-// arrow (aligned with string)
-// arrow appears during draw + release, disappears while reloading
-// Arrow visibility: present while drawing, then snaps off right at release
-const showArrow =
-  (archer.animState === "draw") ||
-  (archer.animState === "release" && archer.anim < 0.60); // show only at start of release
+  // shown arrow (rotates with bow/arms)
+  const showArrow =
+    (archer.animState === "draw") ||
+    (archer.animState === "release" && archer.anim < 0.70);
 
-if(showArrow){
-  const arrowY = drawHandY2 + 1;
+  if(showArrow){
+    const arrowY = drawHandY2 + 1;
 
-  // arrow shaft (moves with draw hand)
-  ctx.strokeStyle = "#3a2a14";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(drawHandX2 - 6, arrowY);
-  ctx.lineTo(drawHandX2 + 18, arrowY);
-  ctx.stroke();
+    ctx.strokeStyle = "#3a2a14";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(drawHandX2 - 6, arrowY);
+    ctx.lineTo(drawHandX2 + 18, arrowY);
+    ctx.stroke();
 
-  // arrow head
-  ctx.fillStyle = "#c0c6d3";
-  ctx.beginPath();
-  ctx.moveTo(drawHandX2 + 18, arrowY);
-  ctx.lineTo(drawHandX2 + 13, arrowY - 3);
-  ctx.lineTo(drawHandX2 + 13, arrowY + 3);
-  ctx.closePath();
-  ctx.fill();
+    ctx.fillStyle = "#c0c6d3";
+    ctx.beginPath();
+    ctx.moveTo(drawHandX2 + 18, arrowY);
+    ctx.lineTo(drawHandX2 + 13, arrowY - 3);
+    ctx.lineTo(drawHandX2 + 13, arrowY + 3);
+    ctx.closePath();
+    ctx.fill();
 
-  // fletching
-  ctx.strokeStyle = "rgba(0,0,0,.25)";
-  ctx.lineWidth = 1.3;
-  ctx.beginPath();
-  ctx.moveTo(drawHandX2 - 6, arrowY);
-  ctx.lineTo(drawHandX2 - 10, arrowY - 2);
-  ctx.moveTo(drawHandX2 - 6, arrowY);
-  ctx.lineTo(drawHandX2 - 10, arrowY + 2);
-  ctx.stroke();
-}
-ctx.restore();
+    ctx.strokeStyle = "rgba(0,0,0,.25)";
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(drawHandX2 - 6, arrowY);
+    ctx.lineTo(drawHandX2 - 10, arrowY - 2);
+    ctx.moveTo(drawHandX2 - 6, arrowY);
+    ctx.lineTo(drawHandX2 - 10, arrowY + 2);
+    ctx.stroke();
+  }
+
+  ctx.restore(); // end bow/arms rotation group
+  ctx.restore();
 }
 
   // ===== Shooting (multi-volley fix) =====
@@ -1939,7 +1953,7 @@ for(const a of G.archers) a.cooldown = Math.max(0, a.cooldown - dt);
     // archers
     for(const a of G.archers){
       const p = archerPos(a);
-      drawArcherOnTower(p.x, p.y+8, a);
+      drawArcherOnTower(p.x, p.y+8, a, G.aimX, G.aimY);
     }
 
     // aim reticle
