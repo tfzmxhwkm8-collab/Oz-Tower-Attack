@@ -1214,9 +1214,10 @@ function drawArcherOnTower(x, y, archer){
 
 // arrow (aligned with string)
 // arrow appears during draw + release, disappears while reloading
+// Arrow visibility: present while drawing, then snaps off right at release
 const showArrow =
-  (archer.animState === "draw" ||
-   archer.animState === "release");
+  (archer.animState === "draw") ||
+  (archer.animState === "release" && archer.anim < 0.60); // show only at start of release
 
 if(showArrow){
   const arrowY = drawHandY2 + 1;
@@ -1248,10 +1249,8 @@ if(showArrow){
   ctx.lineTo(drawHandX2 - 10, arrowY + 2);
   ctx.stroke();
 }
-
 ctx.restore();
 }
-
 
   // ===== Shooting (multi-volley fix) =====
   function beginVolley(){
